@@ -279,10 +279,11 @@ export default function SearchPage() {
                           
                           {/* C. Footer (Optional info) */}
                           <div className="p-2 border-t border-border bg-background-lighter text-[10px] text-text-secondary flex justify-between">
-                             <span>{filteredStreamOptions.length} available</span>
-                             {filters.streamIds?.length ? (
-                               <button onClick={() => handleInputChange("streamIds", [])} className="hover:text-white underline">Clear</button>
-                             ) : null}
+                            <span>{filteredStreamOptions.length} available</span>
+                            {filters.streamIds?.length ? (
+                              // Czyścimy ID-ki
+                              <button onClick={() => handleInputChange("streamIds", [])} className="hover:text-white underline">Clear</button>
+                            ) : null}
                           </div>
                        </div>
                      </>
