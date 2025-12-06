@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getStreams } from '@/components/lib/api/streams'; 
+// Importujemy updateStream z naszej warstwy API
+import { getStreams, updateStream } from '@/components/lib/api/streams'; 
 import { UnifiedStreamDto } from '@/types/stream';
 import { Button } from "@/components/ui/button";
-import { Pencil, Loader2 } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
 import { EditStreamDialog } from "./EditStreamDialog";
 
@@ -24,35 +25,26 @@ export function StreamList() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingStream, setEditingStream] = useState<UnifiedStreamDto | null>(null);
 
-  // 1. Pobieranie listy
   const { data, isLoading, isError } = useQuery<UnifiedStreamDto[]>({
     queryKey: ['streams'],
     queryFn: getStreams,
   });
 
-  // 2. Mutacja aktualizująca (PUT)
+  // ZMIANA: Używamy gotowej funkcji updateStream
   const updateMutation = useMutation({
-    mutationFn: async (updatedStream: UnifiedStreamDto) => {
-      const res = await fetch(`/api/streams/${updatedStream.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedStream),
-      });
-      if (!res.ok) throw new Error('Failed to update stream');
-      return res.json();
-    },
+    mutationFn: updateStream,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['streams'] });
     },
   });
 
-  // Handlery
   const handleEditClick = (stream: UnifiedStreamDto) => {
     setEditingStream(stream);
     setIsEditOpen(true);
   };
 
   const handleSaveWrapper = async (updatedStream: UnifiedStreamDto) => {
+    // updateStream zajmie się oddzieleniem ID od payloadu
     await updateMutation.mutateAsync(updatedStream);
   };
 
@@ -75,36 +67,31 @@ export function StreamList() {
           <TableBody>
             {data?.map((stream) => (
               <TableRow key={stream.id}>
-                {/* Name & ID hint */}
                 <TableCell>
                   <div className="flex flex-col">
                     <span className="font-medium">{stream.name}</span>
                   </div>
                 </TableCell>
                 
-                {/* Type Badge */}
                 <TableCell>
                   <StreamTypeBadge type={stream.type} />
                 </TableCell>
                 
-                {/* Technical Name (Topic/Queue) */}
                 <TableCell className="text-muted-foreground font-mono text-xs">
                   {stream.technicalName}
                 </TableCell>
 
-                {/* Correlation Info */}
                 <TableCell className="text-xs text-muted-foreground">
-                   <div className="flex items-center gap-2">
-                     <span className="px-1.5 py-0.5 rounded border border-border bg-white/5 uppercase text-[10px]">
-                       {stream.correlationKeyType}
-                     </span>
-                     {stream.correlationKeyName && (
-                       <span className="font-mono opacity-80">{stream.correlationKeyName}</span>
-                     )}
-                   </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-1.5 py-0.5 rounded border border-border bg-white/5 uppercase text-[10px]">
+                        {stream.correlationKeyType}
+                      </span>
+                      {stream.correlationKeyName && (
+                        <span className="font-mono opacity-80">{stream.correlationKeyName}</span>
+                      )}
+                    </div>
                 </TableCell>
 
-                {/* Actions */}
                 <TableCell className="text-right">
                   <Button 
                     variant="ghost" 

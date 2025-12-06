@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getConnections } from '@/components/lib/api/connections';
-import { ConnectionDto } from '@/types/connection';
+import { ConnectionOverviewDto, ConnectionDto } from '@/types/connection';
+import { updateConnection } from '@/components/lib/api/connections';
 import { Button } from "@/components/ui/button";
-import { Pencil, Loader2 } from "lucide-react"; // Dodałem Loader2
+import { Pencil, Server } from "lucide-react";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
-import { EditConnectionDialog } from "./EditConnectionDialog"; // Importujemy Twój dialog
+import { ConnectionStatusBadge } from "./ConnectionStatusBadge";
+import { EditConnectionDialog } from "./EditConnectionDialog";
 
 import {
   Table,
@@ -18,83 +19,90 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+// Fetcher
+const getConnectionsOverview = async (): Promise<ConnectionOverviewDto[]> => {
+  const res = await fetch('/api/connections/overview');
+  if (!res.ok) throw new Error('Failed to fetch connections');
+  return res.json();
+};
+
 export function ConnectionList() {
   const queryClient = useQueryClient();
-
-  // 1. Stan do obsługi modala
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<ConnectionDto | null>(null);
 
-  // 2. Pobieranie danych (Twoje istniejące)
-  const { data, isLoading, isError } = useQuery<ConnectionDto[]>({
-    queryKey: ['connections'],
-    queryFn: getConnections,
+  const { data, isLoading, isError } = useQuery<ConnectionOverviewDto[]>({
+    queryKey: ['connections-overview'],
+    queryFn: getConnectionsOverview,
   });
 
-  // 3. Mutacja do zapisu danych (To zastępuje ręcznego fetcha)
   const updateMutation = useMutation({
-    mutationFn: async (updatedConn: ConnectionDto) => {
-      // Tutaj robimy strzał do API
-      const res = await fetch(`/api/connections/${updatedConn.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedConn),
-      });
-      if (!res.ok) throw new Error('Failed to update connection');
-      return res.json();
-    },
+    mutationFn: updateConnection,
     onSuccess: () => {
-      // To jest kluczowe: po sukcesie odświeżamy listę 'connections' automatycznie
-      queryClient.invalidateQueries({ queryKey: ['connections'] });
-      // Modal zamknie się w handleSaveWrapper po await, lub tu:
-      // setIsEditOpen(false); (ale lepiej kontrolować to w Dialogu)
+      queryClient.invalidateQueries({ queryKey: ['connections-overview'] });
+      setIsEditOpen(false);
     },
   });
 
-  // Handler otwierania modala
-  const handleEditClick = (conn: ConnectionDto) => {
-    setEditingConnection(conn);
+  const handleEditClick = (conn: ConnectionOverviewDto) => {
+    // Uwaga: Tutaj normalnie pobrałbyś pełne dane przez API, 
+    // dla uproszczenia rzutujemy, zakładając że Overview ma to co trzeba do edycji
+    setEditingConnection(conn as unknown as ConnectionDto); 
     setIsEditOpen(true);
   };
 
-  // Handler zapisu przekazywany do Dialogu
   const handleSaveWrapper = async (updatedConn: ConnectionDto) => {
-    // await sprawi, że modal poczeka na zakończenie requestu (pokazując loader)
-    // Jeśli mutation rzuci błąd, Dialog go złapie i nie zamknie okna
-    await updateMutation.mutateAsync(updatedConn); 
+    await updateMutation.mutateAsync(updatedConn);
   };
 
   if (isLoading) return <div className="p-4 text-sm text-muted-foreground">Loading connections...</div>;
-  if (isError) return <div className="p-4 text-sm text-red-500">Error loading connections.</div>;
+  if (isError) return <div className="p-4 text-sm text-destructive">Error loading connections.</div>;
 
   return (
     <>
-      <div className="rounded-md border">
+      <div className="rounded-md border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
-              <TableHead>Host</TableHead>
-              <TableHead>Updated</TableHead>
+              <TableHead>Host Details</TableHead>
+              <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {data?.map((conn) => (
               <TableRow key={conn.id}>
-                <TableCell className="font-medium">{conn.name}</TableCell>
+                <TableCell>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-foreground">{conn.name}</span>
+                  </div>
+                </TableCell>
+                
                 <TableCell>
                   <StreamTypeBadge type={conn.type} />
                 </TableCell>
-                <TableCell className="text-muted-foreground font-mono text-xs">
-                  {conn.host}:{conn.port}
+                
+                <TableCell>
+                  {/* Stylizacja spójna z StreamList: font-mono + text-muted-foreground */}
+                  <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                    <Server size={12} className="opacity-70" />
+                    {conn.host}:{conn.port}
+                  </div>
                 </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {conn.updatedAt ? new Date(conn.updatedAt).toLocaleDateString() : '-'}
+
+                <TableCell>
+                  {/* Stylizacja "Pill" z StreamList zaadaptowana do statusu */}
+                  <div className="flex items-center gap-2">
+                      <ConnectionStatusBadge status={conn.status} showLabel={false} />
+                      <span className="px-1.5 py-0.5 rounded border border-border bg-muted/50 uppercase text-[10px] font-medium text-muted-foreground">
+                        {conn.status}
+                      </span>
+                  </div>
                 </TableCell>
+
                 <TableCell className="text-right">
-                  {/* ZMIANA: Zamiast Link używamy onClick */}
                   <Button 
                     variant="ghost" 
                     size="sm" 
@@ -107,9 +115,10 @@ export function ConnectionList() {
                 </TableCell>
               </TableRow>
             ))}
+            
             {(!data || data.length === 0) && (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center">
+                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                   No connections found.
                 </TableCell>
               </TableRow>
@@ -118,7 +127,6 @@ export function ConnectionList() {
         </Table>
       </div>
 
-      {/* 4. Dodanie Modala na dole komponentu */}
       <EditConnectionDialog 
         open={isEditOpen} 
         onOpenChange={setIsEditOpen}
