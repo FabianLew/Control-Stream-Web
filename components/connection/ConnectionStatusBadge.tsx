@@ -12,7 +12,7 @@ interface Props {
 export const ConnectionStatusBadge: React.FC<Props> = ({ status, showLabel = true }) => {
   // Mapowanie statusów z backendu na wygląd
   const config = {
-    ONLINE: { 
+      ONLINE: { 
       color: 'text-emerald-500', 
       bg: 'bg-emerald-500/10', 
       border: 'border-emerald-500/20',

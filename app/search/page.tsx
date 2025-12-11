@@ -1,11 +1,44 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { ResultsTable } from "@/components/search/ResultsTable";
 import { PayloadViewer } from "@/components/search/PayloadViewer";
 import { useSearch } from "@/hooks/useSearch";
 import { SearchFilters, StreamOption } from "@/types";
-import { AlertCircle, Filter, Search, X, ChevronDown, Check, Loader2 } from "lucide-react";
+import { 
+    AlertCircle, Search, ChevronDown, Loader2, 
+    Clock
+} from "lucide-react";
+
+// UI Components
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+
+// --- HELPER: Formatowanie daty dla input type="datetime-local" ---
+// Input oczekuje: "YYYY-MM-DDTHH:mm", a w stanie trzymamy ISO ("YYYY-MM-DDTHH:mm:ss.sssZ")
+const toInputFormat = (isoString?: string) => {
+  if (!isoString) return "";
+  const date = new Date(isoString);
+  // Musimy uwzględnić strefę czasową użytkownika, bo datetime-local działa lokalnie
+  // Prost trick na przesunięcie strefy:
+  const offset = date.getTimezoneOffset() * 60000;
+  const localIso = new Date(date.getTime() - offset).toISOString();
+  return localIso.slice(0, 16); // Wycina sekundy i 'Z'
+};
 
 export default function SearchPage() {
   const { 
@@ -22,369 +55,262 @@ export default function SearchPage() {
   } = useSearch();
   
   const [selectedMessage, setSelectedMessage] = useState<any>(null);
-  const [showFilters, setShowFilters] = useState(false);
-  
-  // --- NOWE STANY DLA STREAMÓW ---
-  const [allStreams, setAllStreams] = useState<StreamOption[]>([]); // Dane z backendu
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const [allStreams, setAllStreams] = useState<StreamOption[]>([]);
   const [areStreamsLoading, setAreStreamsLoading] = useState(false);
-  
-  const [isStreamNameDropdownOpen, setIsStreamNameDropdownOpen] = useState(false);
-  const [streamDropdownSearch, setStreamDropdownSearch] = useState(""); // Szukanie wewnątrz dropdowna
 
-  // 1. Pobieranie listy strumieni przy starcie
+  // Stan dla selecta presetów (żeby wiedzieć co wyświetlić w SelectValue)
+  const [timePreset, setTimePreset] = useState<string>("1h");
+
   useEffect(() => {
-    const fetchStreams = async () => {
-      setAreStreamsLoading(true);
-      try {
-        // Dostosuj URL do swojego kontrolera
-        const res = await fetch('/api/streams/names'); 
-        if (res.ok) {
-          const data = await res.json();
-          setAllStreams(data);
-        }
-      } catch (e) {
-        console.error("Failed to load streams", e);
-      } finally {
-        setAreStreamsLoading(false);
-      }
-    };
-    fetchStreams();
+    setAreStreamsLoading(true);
+    fetch('/api/streams/names')
+        .then(res => res.ok ? res.json() : [])
+        .then(setAllStreams)
+        .catch(err => console.error(err))
+        .finally(() => setAreStreamsLoading(false));
+    
+    // Inicjalizacja domyślnego czasu (np. 1h) przy starcie
+    handlePresetChange("1h");
   }, []);
-
-  // 2. Logika filtrowania opcji w dropdownie
-  // To decyduje, co użytkownik widzi na liście do wyboru
-  const filteredStreamOptions = useMemo(() => {
-    return allStreams.filter(stream => {
-      // Warunek 1: Czy pasuje do zaznaczonych Typów (Kafka/Rabbit...)?
-      const typeMatches = !filters.streamTypes || filters.streamTypes.length === 0 || filters.streamTypes.includes(stream.type);
-      
-      // Warunek 2: Czy pasuje do wpisanej frazy w wyszukiwarce dropdowna?
-      const searchMatches = stream.name.toLowerCase().includes(streamDropdownSearch.toLowerCase());
-      
-      return typeMatches && searchMatches;
-    });
-  }, [allStreams, filters.streamTypes, streamDropdownSearch]);
-
-  // Obsługa formularza
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    search();
-  };
 
   const handleInputChange = (field: keyof SearchFilters, value: any) => {
     setFilters(prev => ({ ...prev, [field]: value }));
+    // Jeśli użytkownik ręcznie zmienia daty, resetujemy preset na "custom"
+    if (field === 'fromTime' || field === 'toTime') {
+        setTimePreset("custom");
+    }
   };
 
-  const toggleStreamType = (type: string) => {
+  const toggleVendorType = (type: string) => {
     const currentTypes = filters.streamTypes || [];
     const newTypes = currentTypes.includes(type)
       ? currentTypes.filter(t => t !== type)
       : [...currentTypes, type];
     
     handleInputChange("streamTypes", newTypes);
-    // Nie czyścimy streamNames automatycznie - użytkownik może chcieć zachować wybór,
-    // nawet jeśli chwilowo odfiltrował dany typ.
   };
 
-  const toggleStream = (streamId: string) => {
-    const currentIds = filters.streamIds || [];
-    
-    const newIds = currentIds.includes(streamId)
-      ? currentIds.filter(id => id !== streamId)
-      : [...currentIds, streamId];
-    
-    // Zapisujemy w stanie ID-ki
-    handleInputChange("streamIds", newIds);
+  // --- LOGIKA PRESETÓW CZASOWYCH ---
+  const handlePresetChange = (val: string) => {
+    setTimePreset(val);
+    if (val === 'custom') return;
+
+    const now = new Date();
+    let from = new Date();
+
+    switch (val) {
+        case '15m': from.setMinutes(now.getMinutes() - 15); break;
+        case '1h': from.setHours(now.getHours() - 1); break;
+        case '24h': from.setHours(now.getHours() - 24); break;
+        case '7d': from.setDate(now.getDate() - 7); break;
+        default: return;
+    }
+
+    setFilters(prev => ({
+        ...prev,
+        fromTime: from.toISOString(),
+        toTime: now.toISOString()
+    }));
   };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    search();
+  };
+
+  const hasActiveFilters = !!(filters.correlationId || filters.contentContains || (filters.streamIds && filters.streamIds.length > 0));
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 p-6">
+    <div className="flex flex-col h-[calc(100vh-64px)] bg-background">
       
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight text-white">Event Explorer</h1>
-        <p className="text-text-secondary">Live search across your Kafka, RabbitMQ and Postgres streams.</p>
-      </div>
-
-      <div className="p-6 rounded-2xl bg-background-card border border-border shadow-lg space-y-4">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          
-          {/* Main Search Bar */}
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={20} />
-              <input
-                type="text"
-                value={filters.correlationId || ''}
-                onChange={(e) => handleInputChange("correlationId", e.target.value)}
-                placeholder="Correlation ID (leave empty to fetch all)..."
-                className="w-full bg-background-main/50 border border-border rounded-xl py-3 pl-10 pr-4 text-white focus:ring-2 focus:ring-primary/50 outline-none transition-all"
-              />
-            </div>
-            <button 
-              type="button" 
-              onClick={() => setShowFilters(!showFilters)}
-              className={`p-3 rounded-xl border transition-colors flex items-center gap-2 ${showFilters ? 'bg-primary/20 border-primary text-primary' : 'bg-background-main/50 border-border text-text-secondary'}`}
-            >
-              <Filter size={20} />
-              <span className="hidden sm:inline">Filters</span>
-            </button>
-            <button 
-              type="submit"
-              disabled={loading}
-              className="bg-primary hover:bg-primary/90 text-white px-8 py-3 rounded-xl font-medium transition-colors disabled:opacity-50 shadow-lg shadow-primary/20"
-            >
-              {loading ? <Loader2 className="animate-spin" /> : 'Search'}
-            </button>
-          </div>
-
-          {/* Extended Filters Panel */}
-          {showFilters && (
-            <div className="pt-4 border-t border-border grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-top-2">
-              
-              {/* 1. Time Range */}
-              <div className="space-y-2">
-                <label className="text-xs uppercase font-bold text-text-secondary">Time Range</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <input 
-                    type="datetime-local" 
-                    className="bg-background-main/30 border border-border rounded-lg p-2 text-sm text-white focus:border-primary outline-none"
-                    onChange={(e) => handleInputChange("fromTime", e.target.value ? new Date(e.target.value).toISOString() : undefined)}
-                  />
-                  <input 
-                    type="datetime-local" 
-                    className="bg-background-main/30 border border-border rounded-lg p-2 text-sm text-white focus:border-primary outline-none"
-                    onChange={(e) => handleInputChange("toTime", e.target.value ? new Date(e.target.value).toISOString() : undefined)}
-                  />
-                </div>
-              </div>
-
-              {/* 2. Payload & Types */}
-              <div className="space-y-4">
-                 <div className="space-y-2">
-                    <label className="text-xs uppercase font-bold text-text-secondary">Payload Content</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. error, user_id..."
-                      className="w-full bg-background-main/30 border border-border rounded-lg p-2 text-sm text-white focus:border-primary outline-none"
-                      value={filters.contentContains || ''}
-                      onChange={(e) => handleInputChange("contentContains", e.target.value)}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label className="text-xs uppercase font-bold text-text-secondary">Stream Types</label>
-                    <div className="flex gap-2 flex-wrap">
-                      {['KAFKA', 'RABBIT', 'POSTGRES'].map(type => (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => toggleStreamType(type)}
-                          className={`text-xs px-3 py-1.5 rounded-full border transition-all ${
-                            (filters.streamTypes || []).includes(type)
-                              ? 'bg-primary/20 border-primary text-primary'
-                              : 'bg-background-main/30 border-border text-text-secondary hover:border-text-secondary'
-                          }`}
-                        >
-                          {type}
-                        </button>
-                      ))}
+      <div className="border-b border-border bg-card px-4 py-3 shadow-sm z-10 flex-none">
+        <form onSubmit={handleSubmit}>
+            <div className="flex flex-wrap items-center gap-2">
+                
+                <div className="relative group w-[220px]">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
+                        <Search size={14} />
                     </div>
-                  </div>
-              </div>
+                    <Input 
+                        placeholder="Correlation ID..." 
+                        value={filters.correlationId || ''}
+                        onChange={(e) => handleInputChange("correlationId", e.target.value)}
+                        className="pl-9 h-9 bg-background text-sm font-mono focus-visible:ring-1"
+                    />
+                </div>
 
-              {/* 3. Stream Name (Advanced Multi-select) */}
-              <div className="space-y-2">
-                 <label className="text-xs uppercase font-bold text-text-secondary">Stream Names</label>
-                 <div className="relative">
-                  
-                   {/* Przycisk otwierający */}
-                   <button
-                      type="button"
-                      onClick={() => setIsStreamNameDropdownOpen(!isStreamNameDropdownOpen)}
-                      className="w-full bg-background-main/30 border border-border rounded-lg p-2 text-sm text-white flex justify-between items-center focus:border-primary transition-colors text-left"
-                   >
-                      <span className="truncate">
-                        {filters.streamIds && filters.streamIds.length > 0
-                          ? `${filters.streamIds.length} selected`
-                          : "Select streams..."}
-                      </span>
-                      <ChevronDown size={16} className="text-text-secondary" />
-                   </button>
+                <div className="w-[220px]">
+                    <Input 
+                        placeholder="Payload contains..." 
+                        value={filters.contentContains || ''}
+                        onChange={(e) => handleInputChange("contentContains", e.target.value)}
+                        className="h-9 bg-background text-sm focus-visible:ring-1"
+                    />
+                </div>
 
-                   {/* Dropdown Content */}
-                   {isStreamNameDropdownOpen && (
-                     <>
-                       <div 
-                         className="fixed inset-0 z-10" 
-                         onClick={() => setIsStreamNameDropdownOpen(false)} 
-                       />
-                       
-                       <div className="absolute z-20 mt-2 w-full bg-background-card border border-border rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 flex flex-col max-h-[300px]">
-                          
-                          {/* A. Search Input inside Dropdown */}
-                          <div className="p-2 border-b border-border bg-background-card sticky top-0">
+                <Separator orientation="vertical" className="h-6 mx-1" />
+
+                <Select 
+                    value={filters.streamIds?.[0] || "ALL"} 
+                    onValueChange={(val) => handleInputChange("streamIds", val === "ALL" ? [] : [val])}
+                >
+                    <SelectTrigger className="w-[180px] h-9 bg-background text-xs">
+                        <SelectValue placeholder="All Streams" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="ALL">All Streams</SelectItem>
+                        {allStreams.map(s => (
+                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+
+                {/* --- TIME PRESET SELECT --- */}
+                <Select 
+                    value={timePreset} 
+                    onValueChange={handlePresetChange}
+                >
+                    <SelectTrigger className="w-[140px] h-9 bg-background text-xs">
+                        <Clock size={14} className="mr-2 text-muted-foreground"/>
+                        <SelectValue placeholder="Time Range" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="15m">Last 15 min</SelectItem>
+                        <SelectItem value="1h">Last 1 Hour</SelectItem>
+                        <SelectItem value="24h">Last 24 Hours</SelectItem>
+                        <SelectItem value="7d">Last 7 Days</SelectItem>
+                        <SelectItem value="custom">Custom Range</SelectItem>
+                    </SelectContent>
+                </Select>
+
+                <Button 
+                    type="submit" 
+                    size="sm"
+                    disabled={loading}
+                    className={`h-9 px-6 ml-auto font-medium transition-all ${
+                        hasActiveFilters ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'bg-muted text-muted-foreground hover:text-foreground'
+                    }`}
+                >
+                    {loading ? <Loader2 size={14} className="animate-spin mr-2"/> : <Search size={14} className="mr-2"/>}
+                    Search
+                </Button>
+            </div>
+
+            <Collapsible open={isAdvancedOpen} onOpenChange={setIsAdvancedOpen} className="mt-2">
+                <CollapsibleTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-6 text-[10px] text-muted-foreground gap-1 px-1 hover:bg-transparent hover:text-primary w-full justify-center border-t border-transparent hover:border-border mt-2">
+                        {isAdvancedOpen ? 'Hide' : 'Show'} Advanced Filters <ChevronDown size={10} className={`transition-transform ${isAdvancedOpen ? 'rotate-180' : ''}`}/>
+                    </Button>
+                </CollapsibleTrigger>
+                
+                <CollapsibleContent className="pt-3 pb-2 border-t border-dashed border-border mt-2 animate-in slide-in-from-top-2">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                        
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Vendor Type</label>
+                            <div className="flex gap-2">
+                                {['KAFKA', 'RABBIT', 'POSTGRES'].map(t => {
+                                    const isActive = filters.streamTypes?.includes(t);
+                                    return (
+                                        <Badge 
+                                            key={t} 
+                                            variant={isActive ? "default" : "outline"} 
+                                            className={`
+                                                cursor-pointer text-[10px] px-2.5 py-0.5 select-none transition-all
+                                                ${isActive 
+                                                    ? 'hover:bg-primary/90 border-primary' 
+                                                    : 'hover:border-primary hover:text-primary text-muted-foreground bg-background'
+                                                }
+                                            `}
+                                            onClick={() => toggleVendorType(t)}
+                                        >
+                                            {t}
+                                        </Badge>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* --- DATE INPUTS SYNCED WITH PRESET --- */}
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">From</label>
                             <div className="relative">
-                                <Search className="absolute left-2 top-1/2 -translate-y-1/2 text-text-secondary" size={14} />
-                                <input 
-                                  type="text"
-                                  autoFocus
-                                  placeholder="Filter streams..."
-                                  className="w-full bg-background-main border border-border rounded-md py-1.5 pl-8 pr-2 text-xs text-white focus:border-primary outline-none"
-                                  value={streamDropdownSearch}
-                                  onChange={(e) => setStreamDropdownSearch(e.target.value)}
+                                <Input 
+                                    type="datetime-local" 
+                                    className="h-8 text-xs bg-background font-sans [color-scheme:dark]" 
+                                    // Używamy helpera toInputFormat
+                                    value={toInputFormat(filters.fromTime)}
+                                    onChange={(e) => {
+                                        // Przy zmianie ręcznej konwertujemy z powrotem na ISO
+                                        const date = new Date(e.target.value);
+                                        handleInputChange("fromTime", date.toISOString());
+                                    }}
                                 />
                             </div>
-                          </div>
+                        </div>
 
-                          {/* B. Scrollable List */}
-                          <div className="overflow-y-auto flex-1 p-1">
-                            {areStreamsLoading ? (
-                                <div className="p-4 text-center text-text-secondary"><Loader2 className="animate-spin mx-auto" /></div>
-                            ) : filteredStreamOptions.length === 0 ? (
-                                <div className="p-3 text-xs text-text-secondary text-center">
-                                  No streams found.
-                                </div>
-                            ) : (
-                            filteredStreamOptions.map(stream => {
-                              // SPRAWDZAMY PO ID:
-                              const isSelected = (filters.streamIds || []).includes(stream.id);
-                              
-                              return (
-                                <div 
-                                  key={stream.id} // Używamy ID jako klucza
-                                  // PRZEKAZUJEMY ID:
-                                  onClick={() => toggleStream(stream.id)} 
-                                  className={`
-                                    flex items-center gap-3 p-2 rounded-lg cursor-pointer text-sm transition-colors
-                                    ${isSelected ? 'bg-primary/20 text-white' : 'text-text-secondary hover:bg-white/5'}
-                                  `}
-                                >
-                                  <div className={`
-                                    w-4 h-4 rounded border flex items-center justify-center flex-shrink-0
-                                    ${isSelected ? 'bg-primary border-primary' : 'border-text-secondary/50'}
-                                  `}>
-                                    {isSelected && <Check size={10} className="text-white" />}
-                                  </div>
-                                  
-                                  <div className="flex flex-col truncate">
-                                    {/* Wyświetlamy NAZWĘ */}
-                                    <span className="font-medium truncate">{stream.name}</span>
-                                    <span className="text-[10px] opacity-60 uppercase">{stream.type}</span>
-                                  </div>
-                                </div>
-                              );
-                            })
-                            )}
-                          </div>
-                          
-                          {/* C. Footer (Optional info) */}
-                          <div className="p-2 border-t border-border bg-background-lighter text-[10px] text-text-secondary flex justify-between">
-                            <span>{filteredStreamOptions.length} available</span>
-                            {filters.streamIds?.length ? (
-                              // Czyścimy ID-ki
-                              <button onClick={() => handleInputChange("streamIds", [])} className="hover:text-white underline">Clear</button>
-                            ) : null}
-                          </div>
-                       </div>
-                     </>
-                   )}
-                 </div>
-                 
-                 {/* Selected Tags Display */}
-              {filters.streamIds && filters.streamIds.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2 max-h-[60px] overflow-y-auto custom-scrollbar">
-                  {filters.streamIds.map(id => {
-                    // SZUKAMY NAZWY DLA DANEGO ID:
-                    const streamObj = allStreams.find(s => s.id === id);
-                    const displayName = streamObj ? streamObj.name : id; // fallback do ID jeśli nie znaleziono
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">To</label>
+                            <div className="relative">
+                                <Input 
+                                    type="datetime-local" 
+                                    className="h-8 text-xs bg-background font-sans [color-scheme:dark]"
+                                    value={toInputFormat(filters.toTime)}
+                                    onChange={(e) => {
+                                        const date = new Date(e.target.value);
+                                        handleInputChange("toTime", date.toISOString());
+                                    }}
+                                />
+                            </div>
+                        </div>
 
-                    return (
-                      <span key={id} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-background-main border border-border text-[10px] text-text-secondary animate-in zoom-in">
-                        {displayName}
-                        <button 
-                          type="button"
-                          // USUWANIE PO ID:
-                          onClick={() => toggleStream(id)}
-                          className="hover:text-white rounded-full p-0.5 hover:bg-white/10"
-                        >
-                          <X size={10} />
-                        </button>
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-              </div>
-
-            </div>
-          )}
+                    </div>
+                </CollapsibleContent>
+            </Collapsible>
         </form>
       </div>
 
-      {/* ERROR & RESULTS SECTIONS (Bez zmian) */}
-      {error && (
-        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-3">
-          <AlertCircle size={20} />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {results.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between px-2">
-            <h2 className="text-xl font-semibold text-white">Results</h2>
-            <div className="flex gap-4 text-sm text-text-secondary font-mono">
-              <span>Found: <span className="text-primary">{totalFound}</span></span>
-              <span>Time: <span className="text-primary">{executionTime}ms</span></span>
+      <div className="flex-1 overflow-auto p-4 md:p-6 bg-background/50">
+        {error && (
+            <div className="mb-4 p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive flex items-center gap-2 text-sm">
+                <AlertCircle size={16} /> {error}
             </div>
-          </div>
-          <ResultsTable 
-            messages={results} 
-            onMessageClick={setSelectedMessage} 
-          />
-          {hasMore && (
-             <div className="flex justify-center pt-4 pb-12">
-               <button
-                 onClick={loadMore}
-                 disabled={loading}
-                 className="
-                    group flex items-center gap-2 px-6 py-2.5 
-                    bg-background-card border border-border rounded-full 
-                    text-sm text-text-secondary hover:text-white hover:border-primary/50 hover:bg-white/5
-                    transition-all shadow-lg active:scale-95
-                 "
-               >
-                 {loading ? (
-                   <>
-                     <Loader2 size={16} className="animate-spin text-primary" />
-                     <span>Loading more...</span>
-                   </>
-                 ) : (
-                   <>
-                     <ChevronDown size={16} className="group-hover:translate-y-0.5 transition-transform" />
-                     <span>Load more results</span>
-                   </>
-                 )}
-               </button>
-             </div>
-           )}
-           
-           {/* Informacja o końcu wyników */}
-           {!hasMore && results.length > 0 && (
-              <div className="text-center py-8">
-                 <span className="text-xs text-text-secondary opacity-50 px-3 py-1 border border-border rounded-full">
-                    End of results
-                 </span>
-              </div>
-           )}
-         </div>
-       )}
+        )}
 
-      {!loading && !error && results.length === 0 && (
-        <div className="text-center py-10 text-text-secondary">
-           No events found matching your criteria.
-        </div>
-      )}
+        {results.length > 0 ? (
+            <div className="space-y-2">
+                <div className="flex justify-between items-end px-1 pb-1">
+                    <span className="text-xs text-muted-foreground">
+                        Found <span className="text-foreground font-medium">{totalFound}</span> events 
+                        <span className="mx-1.5 opacity-50">|</span> 
+                        {executionTime}ms
+                    </span>
+                </div>
+                
+                <ResultsTable 
+                    messages={results} 
+                    onMessageClick={setSelectedMessage} 
+                />
+
+                {hasMore && (
+                    <div className="py-4 text-center">
+                        <Button variant="outline" onClick={loadMore} disabled={loading} className="gap-2 text-xs h-8">
+                            {loading ? <Loader2 size={12} className="animate-spin"/> : <ChevronDown size={12}/>}
+                            Load older events
+                        </Button>
+                    </div>
+                )}
+            </div>
+        ) : (
+            !loading && (
+                <div className="h-full flex flex-col items-center justify-center text-muted-foreground space-y-4 opacity-70">
+                    <Search size={48} className="opacity-20"/>
+                    <p>No events found. Try adjusting your filters.</p>
+                </div>
+            )
+        )}
+      </div>
 
       <PayloadViewer 
         message={selectedMessage} 

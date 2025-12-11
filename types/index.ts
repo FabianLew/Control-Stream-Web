@@ -1,49 +1,36 @@
-export interface SearchMessage {
+export type StreamType = 'KAFKA' | 'RABBIT' | 'POSTGRES' | string;
+
+export interface SearchMessageRow {
+  streamId: string;
+  streamName: string;
+  streamType: StreamType;
   messageId: string;
   payload: string;
-  headers: string;
+  headers: string; // JSON string
   correlationId: string;
-  timestamp: string;
-}
-
-// 2. To jest grupa wyników z Backend API
-export interface StreamResultEntry {
-  streamName: string;
-  streamType: "KAFKA" | "RABBIT" | "POSTGRES" | string;
+  timestamp: string; // ISO Instant
   errorMessage?: string;
-  messages: SearchMessage[];
 }
 
-// 3. To jest główna odpowiedź z Backend API
 export interface SearchResult {
   queryCorrelationId: string;
   totalFound: number;
   executionTimeMs: number;
-  results: StreamResultEntry[];
+  messages: SearchMessageRow[];
 }
 
-
-export interface SearchMessageRow extends SearchMessage {
-  streamName: string;
-  streamType: string;
-}
 
 export interface SearchFilters {
-  correlationId?: string;       // Opcjonalne ID korelacji
-  contentContains?: string;     // Szukanie w treści payloadu
-  fromTime?: string;            // Data w formacie ISO String
-  toTime?: string;              // Data w formacie ISO String
-  streamTypes?: string[];       // np. ["KAFKA", "RABBIT", "POSTGRES"]
+  correlationId?: string;
+  contentContains?: string;
   streamIds?: string[];
-  limit?: number;               // Limit wyników (domyślnie 10)
-  page?: number; // Numer strony (0, 1, 2...)
-  size?: number; // Ilość wyników na stronę (np. 50)
+  streamTypes?: string[];
+  fromTime?: string;
+  toTime?: string;
 }
 
-export type StreamType = 'KAFKA' | 'RABBIT' | 'POSTGRES';
-
 export interface StreamOption {
-  id : string;
+  id: string;
   name: string;
-  type: StreamType; 
+  type: StreamType;
 }
