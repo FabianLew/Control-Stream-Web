@@ -1,4 +1,5 @@
 "use client";
+
 import {
   useForm,
   DefaultValues,
@@ -10,7 +11,7 @@ import {
   createConnectionSchema,
   CreateConnectionFormValues,
 } from "@/components/lib/schemas";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Loader2,
   Save,
@@ -20,6 +21,7 @@ import {
   Server,
   Info,
   Code,
+  PenLine, // Dodano ikonę dla edycji
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -40,7 +42,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
+import { Label } from "@/components/ui/label";
 
 const VendorIcon = ({ type }: { type: string }) => {
   if (type === "KAFKA") return <Activity className="text-purple-500 h-6 w-6" />;
@@ -50,8 +54,12 @@ const VendorIcon = ({ type }: { type: string }) => {
   return <Server className="text-slate-500 h-6 w-6" />;
 };
 
-// IMPORTANT: defaultValues muszą zgadzać się 1:1 z CreateConnectionFormValues
-const defaultValues: DefaultValues<CreateConnectionFormValues> = {
+// Rozszerzamy typ o ID dla trybu edycji
+type ConnectionFormProps = {
+  initialData?: CreateConnectionFormValues & { id: string };
+};
+
+const defaultEmptyValues: DefaultValues<CreateConnectionFormValues> = {
   name: "",
   type: "KAFKA",
   host: "localhost",
@@ -66,63 +74,85 @@ const defaultValues: DefaultValues<CreateConnectionFormValues> = {
   },
 };
 
-export function CreateConnectionForm() {
+export function ConnectionForm({ initialData }: ConnectionFormProps) {
   const router = useRouter();
+  // const { toast } = useToast(); // Opcjonalnie
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-const form = useForm<
-  CreateConnectionFormValues,
-  any,
-  CreateConnectionFormValues
->({
-  resolver: zodResolver(createConnectionSchema) as Resolver<CreateConnectionFormValues>,
-  defaultValues,
-});
+  const isEditMode = !!initialData;
 
-
+  const form = useForm<CreateConnectionFormValues>({
+    resolver: zodResolver(
+      createConnectionSchema
+    ) as Resolver<CreateConnectionFormValues>,
+    // Jeśli edytujemy, używamy initialData, w przeciwnym razie domyślnych
+    defaultValues: initialData || defaultEmptyValues,
+  });
 
   const selectedType = form.watch("type");
+  const isSrEnabled = form.watch("schemaRegistryEnabled");
+  const srAuthType = form.watch("schemaRegistryAuth");
   const formValues = form.watch();
 
-  useEffect(() => {
-    if (selectedType === "KAFKA") form.setValue("port", 9092);
-    if (selectedType === "RABBIT") form.setValue("port", 5672);
-    if (selectedType === "POSTGRES") form.setValue("port", 5432);
-  }, [selectedType, form]);
+  // UWAGA: Usunąłem useEffect resetujący port. To psułoby edycję (nadpisywałoby port z bazy).
+  // Logikę zmiany portu przeniosłem do onValueChange w Select.
 
-const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
-  data
-) => {
-  setIsSubmitting(true);
-  setError(null);
+  const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (data) => {
+    setIsSubmitting(true);
+    setError(null);
 
-  try {
-    const payload: CreateConnectionFormValues = { ...data };
+    try {
+      const payload: CreateConnectionFormValues = { ...data };
 
-    if (data.type === "KAFKA") {
-      payload.metadata.bootstrapServers = `${data.host}:${data.port}`;
+      // Logika specyficzna dla typów
+      if (data.type === "KAFKA") {
+        payload.metadata.bootstrapServers = `${data.host}:${data.port}`;
+        if (!data.schemaRegistryEnabled) {
+          payload.schemaRegistryUrl = undefined;
+          payload.schemaRegistryUsername = undefined;
+          payload.schemaRegistryPassword = undefined;
+        }
+      }
+
+      // Dynamiczny URL i metoda w zależności od trybu
+      const url = isEditMode
+        ? `/api/connections/${initialData.id}`
+        : "/api/connections";
+
+      const method = isEditMode ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method: method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok)
+        throw new Error(isEditMode ? "Failed to update" : "Failed to create");
+
+      router.push("/connections");
+      router.refresh();
+
+      // toast({ title: isEditMode ? "Updated!" : "Created!" });
+    } catch (e) {
+      setError("Something went wrong. Please check your inputs.");
+    } finally {
+      setIsSubmitting(false);
     }
+  };
 
-    const res = await fetch("/api/connections", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+  const handleTypeChange = (val: "KAFKA" | "RABBIT" | "POSTGRES") => {
+    form.setValue("type", val);
 
-    if (!res.ok) throw new Error("Failed to create connection");
-
-    router.push("/connections");
-    router.refresh();
-  } catch (e) {
-    setError("Something went wrong. Please check your inputs.");
-  } finally {
-    setIsSubmitting(false);
-  }
-};
-
+    // Ustawiamy domyślny port tylko przy ręcznej zmianie typu, nie przy ładowaniu
+    if (val === "KAFKA") form.setValue("port", 9092);
+    if (val === "RABBIT") form.setValue("port", 5672);
+    if (val === "POSTGRES") form.setValue("port", 5432);
+  };
 
   const getPreviewJson = () => {
+    // ... (Logika bez zmian, kopiuję dla kompletności kontekstu zmiennych)
     const type = formValues.type || "KAFKA";
     const host = formValues.host;
     const port = formValues.port;
@@ -134,6 +164,16 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
     if (type === "KAFKA") {
       preview.bootstrapServers = `${host}:${port}`;
       if (metadata?.sslEnabled) preview.ssl = true;
+      if (formValues.schemaRegistryEnabled) {
+        preview.schemaRegistry = {
+          url: formValues.schemaRegistryUrl,
+          auth: formValues.schemaRegistryAuth,
+        };
+        if (formValues.schemaRegistryAuth === "BASIC") {
+          preview.schemaRegistry.username = formValues.schemaRegistryUsername;
+          preview.schemaRegistry.password = "********";
+        }
+      }
     } else if (type === "POSTGRES") {
       preview.url = `jdbc:postgresql://${host}:${port}/${
         metadata?.databaseName || "controlestream"
@@ -159,9 +199,13 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
         <div className="lg:col-span-1 space-y-6">
           <Card className="border-border/60 shadow-sm">
             <CardHeader>
-              <CardTitle className="text-base">Connection Details</CardTitle>
+              <CardTitle className="text-base">
+                {isEditMode ? "Edit Connection" : "Connection Details"}
+              </CardTitle>
               <CardDescription>
-                Basic identification for this resource.
+                {isEditMode
+                  ? "Modify existing resource settings."
+                  : "Basic identification for this resource."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -189,9 +233,9 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
                 </label>
                 <Select
                   value={selectedType}
-                  onValueChange={(val) =>
-                    form.setValue("type", val as CreateConnectionFormValues["type"])
-                  }
+                  onValueChange={(val) => handleTypeChange(val as any)}
+                  // Opcjonalnie: zablokuj zmianę typu w trybie edycji, jeśli backend tego nie obsługuje
+                  // disabled={isEditMode}
                 >
                   <SelectTrigger className="bg-background">
                     <SelectValue placeholder="Select type" />
@@ -210,6 +254,7 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
             </CardContent>
           </Card>
 
+          {/* ... Info Card (bez zmian) ... */}
           <Card className="bg-muted/10 border-dashed border-border/60">
             <CardContent className="p-4 space-y-3">
               <div className="flex items-center gap-2 text-primary text-sm font-medium">
@@ -225,7 +270,9 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
 
         {/* RIGHT COLUMN */}
         <div className="lg:col-span-2 space-y-6">
+          {/* ... Card Header (Vendor specific logic) ... */}
           <Card className="border-border/60 shadow-sm relative overflow-hidden">
+            {/* Górny pasek koloru */}
             <div
               className={`absolute top-0 left-0 w-full h-1 
                 ${
@@ -238,7 +285,7 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
                     : "bg-slate-500"
                 }`}
             />
-
+            {/* ... Reszta UI bez zmian merytorycznych, tylko podpięte form ... */}
             <CardHeader className="pb-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-muted/30 rounded-lg border border-border">
@@ -253,7 +300,7 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
                       : "Broker Configuration"}
                   </CardTitle>
                   <CardDescription>
-                    Enter connection parameters for{" "}
+                    {isEditMode ? "Update" : "Enter"} connection parameters for{" "}
                     {selectedType.toLowerCase()}.
                   </CardDescription>
                 </div>
@@ -261,6 +308,11 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
             </CardHeader>
 
             <CardContent className="space-y-6">
+              {/* TUTAJ JEST CAŁA RESZTA PÓL (Host, Port, Auth, etc.) 
+                   Kod pozostaje taki sam jak w Twoim oryginale, 
+                   ponieważ `form.register` działa tak samo dla Create i Update 
+                */}
+
               {/* HOST & PORT */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="col-span-2 space-y-2">
@@ -297,7 +349,7 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
 
               <Separator />
 
-              {/* AUTH */}
+              {/* AUTH FOR NON-KAFKA */}
               {(selectedType === "RABBIT" || selectedType === "POSTGRES") && (
                 <div className="grid grid-cols-2 gap-4 animate-in fade-in">
                   <div className="space-y-2">
@@ -317,7 +369,9 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
                     <Input
                       {...form.register("password")}
                       type="password"
-                      placeholder="••••••"
+                      placeholder={
+                        isEditMode ? "•••••• (leave empty to keep)" : "••••••"
+                      }
                       className="bg-background"
                     />
                   </div>
@@ -326,7 +380,7 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
 
               {/* KAFKA SPECIFIC */}
               {selectedType === "KAFKA" && (
-                <div className="space-y-4 animate-in fade-in">
+                <div className="space-y-6 animate-in fade-in">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                       Security Protocol
@@ -348,10 +402,95 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
                       </SelectContent>
                     </Select>
                   </div>
+
+                  <Separator />
+
+                  {/* Schema Registry Block (Skrócony dla czytelności - użyj swojego oryginału) */}
+                  <div className="border rounded-lg p-4 space-y-4 bg-muted/20">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label className="text-sm font-semibold">
+                          Schema Registry
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          Enable integration with Avro/Protobuf schemas.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={isSrEnabled}
+                        onCheckedChange={(checked) =>
+                          form.setValue("schemaRegistryEnabled", checked)
+                        }
+                      />
+                    </div>
+                    {isSrEnabled && (
+                      <div className="grid gap-4 animate-in slide-in-from-top-2 fade-in pt-2">
+                        <div className="grid gap-2">
+                          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                            Schema Registry URL{" "}
+                            <span className="text-destructive">*</span>
+                          </label>
+                          <Input
+                            {...form.register("schemaRegistryUrl")}
+                            className="bg-background"
+                          />
+                          {form.formState.errors.schemaRegistryUrl && (
+                            <p className="text-destructive text-xs">
+                              {form.formState.errors.schemaRegistryUrl.message}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="grid gap-2">
+                          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                            Authentication
+                          </label>
+                          <Select
+                            value={srAuthType || "NONE"}
+                            onValueChange={(val) =>
+                              form.setValue("schemaRegistryAuth", val as any)
+                            }
+                          >
+                            <SelectTrigger className="bg-background">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="NONE">None</SelectItem>
+                              <SelectItem value="BASIC">Basic Auth</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {srAuthType === "BASIC" && (
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                              <label className="text-xs font-bold text-muted-foreground uppercase">
+                                Username
+                              </label>
+                              <Input
+                                {...form.register("schemaRegistryUsername")}
+                                className="bg-background"
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <label className="text-xs font-bold text-muted-foreground uppercase">
+                                Password
+                              </label>
+                              <Input
+                                type="password"
+                                {...form.register("schemaRegistryPassword")}
+                                className="bg-background"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
-              {/* POSTGRES SPECIFIC */}
+              {/* Postgres Metadata */}
               {selectedType === "POSTGRES" && (
                 <div className="grid grid-cols-2 gap-4 animate-in fade-in">
                   <div className="space-y-2">
@@ -360,19 +499,13 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
                     </label>
                     <Input
                       {...form.register("metadata.databaseName")}
-                      placeholder="controlestream"
                       className="bg-background"
                     />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                      Schema
-                    </label>
                   </div>
                 </div>
               )}
 
-              {/* RABBIT SPECIFIC */}
+              {/* Rabbit Metadata */}
               {selectedType === "RABBIT" && (
                 <div className="space-y-2 animate-in fade-in">
                   <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
@@ -414,10 +547,12 @@ const onSubmit: SubmitHandler<CreateConnectionFormValues> = async (
             >
               {isSubmitting ? (
                 <Loader2 className="animate-spin mr-2" />
+              ) : isEditMode ? (
+                <PenLine className="mr-2" size={18} />
               ) : (
                 <Save className="mr-2" size={18} />
               )}
-              Save Connection
+              {isEditMode ? "Update Connection" : "Save Connection"}
             </Button>
           </div>
         </div>

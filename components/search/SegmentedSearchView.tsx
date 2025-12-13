@@ -1,15 +1,13 @@
 import React from "react";
-import {
-  useSegmentedSearch,
-  SearchResultDto,
-} from "@/hooks/useSegmentedSearch";
+import { useSegmentedSearch } from "@/hooks/useSegmentedSearch";
 import { SearchResultColumn } from "./SearchResultColumn";
 import { Info, Hand } from "lucide-react";
 import { cn } from "@/components/lib/utils";
 import { useDraggableScroll } from "@/hooks/useDraggableScroll";
+import { SearchMessageRow } from "@/types";
 
 interface SegmentedSearchViewProps {
-  results: SearchResultDto[];
+  results: SearchMessageRow[];
   onMessageClick: (msg: any) => void;
 }
 

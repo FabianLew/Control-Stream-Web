@@ -8,7 +8,7 @@ interface SearchState {
   totalFound: number;
   executionTime: number;
 
-  // --- Stan UI/Status ---
+  // --- Stan UI/Status ---a
   loading: boolean;
   error: string | null;
   page: number;
