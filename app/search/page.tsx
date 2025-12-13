@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useSearch } from "@/hooks/useSearch";
+import { useState, useEffect } from "react";
 import { ResultsTable } from "@/components/search/ResultsTable";
-import { SegmentedSearchView } from "@/components/search/SegmentedSearchView";
 import { PayloadViewer } from "@/components/search/PayloadViewer";
-
+import { SegmentedSearchView } from "@/components/search/SegmentedSearchView";
+import { useSearch } from "@/hooks/useSearch";
+import { SearchFilters, StreamOption } from "@/types";
+import { FilterMultiSelect } from "@/components/ui/filter-multi-select";
 import {
   AlertCircle,
-  Search as SearchIcon,
+  Search,
   ChevronDown,
   Loader2,
   Clock,
@@ -18,6 +19,13 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Collapsible,
   CollapsibleContent,
@@ -31,23 +39,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import { Checkbox } from "@/components/ui/checkbox";
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { StreamOption, SearchFilters } from "@/types";
+// --- STAŁE DO LOCAL STORAGE ---
+const STORAGE_VIEW_KEY = "cs_search_view_mode";
+const STORAGE_FILTERS_KEY = "cs_search_filters";
+const STORAGE_PRESET_KEY = "cs_search_time_preset";
 
-// helper do datetime-local
 const toInputFormat = (isoString?: string) => {
   if (!isoString) return "";
   const date = new Date(isoString);
@@ -77,6 +74,10 @@ export default function SearchPage() {
   const [viewMode, setViewMode] = useState<"unified" | "segmented">("unified");
   const [timePreset, setTimePreset] = useState<string>("1h");
 
+  // Flaga inicjalizacji
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // --- 1. ŁADOWANIE STANU PRZY STARCIE ---
   useEffect(() => {
     setAreStreamsLoading(true);
     fetch("/api/streams/names")
@@ -85,9 +86,69 @@ export default function SearchPage() {
       .catch(console.error)
       .finally(() => setAreStreamsLoading(false));
 
-    handlePresetChange("1h");
+    try {
+      const savedView = localStorage.getItem(STORAGE_VIEW_KEY);
+      const savedFilters = localStorage.getItem(STORAGE_FILTERS_KEY);
+      const savedPreset = localStorage.getItem(STORAGE_PRESET_KEY);
+
+      if (savedView === "unified" || savedView === "segmented") {
+        setViewMode(savedView);
+      }
+
+      if (savedPreset) {
+        setTimePreset(savedPreset);
+      }
+
+      // WAŻNE: Wczytujemy filtry z LocalStorage tylko jeśli Zustand jest pusty
+      // lub chcemy wymusić spójność. Tutaj zakładamy, że LocalStorage jest źródłem prawdy przy F5.
+      if (savedFilters) {
+        const parsedFilters = JSON.parse(savedFilters);
+        // Scalamy, ale uwaga: jeśli Zustand ma już dane, to setFilters zaktualizuje je w Store
+        setFilters((prev) => ({ ...prev, ...parsedFilters }));
+      } else {
+        handlePresetChange("1h");
+      }
+    } catch (e) {
+      console.error("Failed to restore search state", e);
+    } finally {
+      setIsInitialized(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // --- 2. AUTOMATYCZNE WYSZUKIWANIE (POPRAWIONE) ---
+  useEffect(() => {
+    if (isInitialized) {
+      // --- FIX: BLOKADA PONOWNEGO REQUESTU ---
+      // Jeśli w Zustandzie (results) są już wyniki, to znaczy że wróciliśmy z innej zakładki.
+      // Nie robimy search(), bo dane są w RAM i wyświetlą się natychmiast.
+      if (results.length > 0) {
+        return;
+      }
+
+      // Jeśli results jest puste (np. po F5), to wtedy robimy fetch
+      search();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInitialized]); // Zależność tylko od inicjalizacji
+
+  // --- 3. AUTOMATYCZNE ZAPISYWANIE ZMIAN ---
+  useEffect(() => {
+    if (!isInitialized) return;
+
+    const saveState = setTimeout(() => {
+      localStorage.setItem(STORAGE_FILTERS_KEY, JSON.stringify(filters));
+      localStorage.setItem(STORAGE_PRESET_KEY, timePreset);
+    }, 500);
+
+    return () => clearTimeout(saveState);
+  }, [filters, timePreset, isInitialized]);
+
+  // --- Helper zmiany widoku ---
+  const changeViewMode = (mode: "unified" | "segmented") => {
+    setViewMode(mode);
+    localStorage.setItem(STORAGE_VIEW_KEY, mode);
+  };
 
   const handleInputChange = (field: keyof SearchFilters, value: any) => {
     setFilters((prev) => ({ ...prev, [field]: value }));
@@ -107,10 +168,8 @@ export default function SearchPage() {
   const handlePresetChange = (val: string) => {
     setTimePreset(val);
     if (val === "custom") return;
-
     const now = new Date();
     let from = new Date();
-
     switch (val) {
       case "15m":
         from.setMinutes(now.getMinutes() - 15);
@@ -127,7 +186,6 @@ export default function SearchPage() {
       default:
         return;
     }
-
     setFilters((prev) => ({
       ...prev,
       fromTime: from.toISOString(),
@@ -146,34 +204,15 @@ export default function SearchPage() {
     (filters.streamIds && filters.streamIds.length > 0)
   );
 
-  const selectedStreamIds = filters.streamIds ?? [];
-  const selectedStreamCount = selectedStreamIds.length;
-  const streamLabel =
-    selectedStreamCount === 0
-      ? "All Streams"
-      : `${selectedStreamCount} selected`;
-
-  const toggleStream = (streamId: string) => {
-    const current = filters.streamIds ?? [];
-    const exists = current.includes(streamId);
-    const next = exists
-      ? current.filter((id) => id !== streamId)
-      : [...current, streamId];
-    handleInputChange("streamIds", next);
-  };
-
-  const clearStreams = () => handleInputChange("streamIds", []);
-
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] w-full max-w-[100vw] overflow-hidden bg-background">
-      {/* HEADER / FILTERS */}
+      {/* --- HEADER --- */}
       <div className="flex-none w-full border-b border-border bg-card px-4 py-3 shadow-sm z-10">
         <form onSubmit={handleSubmit} className="w-full">
           <div className="flex flex-wrap items-center gap-2 w-full">
-            {/* Correlation ID */}
             <div className="relative group w-[220px]">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
-                <SearchIcon size={14} />
+                <Search size={14} />
               </div>
               <Input
                 placeholder="Correlation ID..."
@@ -185,7 +224,6 @@ export default function SearchPage() {
               />
             </div>
 
-            {/* Payload contains */}
             <div className="w-[220px]">
               <Input
                 placeholder="Payload contains..."
@@ -199,84 +237,14 @@ export default function SearchPage() {
 
             <Separator orientation="vertical" className="h-6 mx-1" />
 
-            {/* MULTISELECT STREAMS */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9 min-w-[190px] bg-background text-xs font-normal justify-between"
-                >
-                  <span className="truncate">
-                    {areStreamsLoading ? "Loading streams..." : streamLabel}
-                  </span>
-                  <ChevronDown size={12} className="ml-2 shrink-0 opacity-60" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                className="w-64 p-2 space-y-2"
-                align="start"
-                sideOffset={4}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                    Streams
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-[11px]"
-                    onClick={clearStreams}
-                  >
-                    Clear
-                  </Button>
-                </div>
+            <FilterMultiSelect
+              title="Streams"
+              options={allStreams.map((s) => ({ id: s.id, label: s.name }))}
+              selected={filters.streamIds || []}
+              onChange={(newIds) => handleInputChange("streamIds", newIds)}
+              isLoading={areStreamsLoading}
+            />
 
-                <div className="flex items-center gap-2 py-1">
-                  <Checkbox
-                    id="all-streams"
-                    checked={selectedStreamCount === 0}
-                    onCheckedChange={() => clearStreams()}
-                  />
-                  <label
-                    htmlFor="all-streams"
-                    className="text-xs leading-none cursor-pointer"
-                  >
-                    All streams
-                  </label>
-                </div>
-
-                <Separator className="my-1" />
-
-                <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
-                  {allStreams.map((s) => {
-                    const checked = selectedStreamIds.includes(s.id);
-                    return (
-                      <div
-                        key={s.id}
-                        className="flex items-center gap-2 py-0.5"
-                      >
-                        <Checkbox
-                          id={`stream-${s.id}`}
-                          checked={checked}
-                          onCheckedChange={() => toggleStream(s.id)}
-                        />
-                        <label
-                          htmlFor={`stream-${s.id}`}
-                          className="text-xs leading-none cursor-pointer truncate"
-                        >
-                          {s.name}
-                        </label>
-                      </div>
-                    );
-                  })}
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            {/* TIME PRESET */}
             <Select value={timePreset} onValueChange={handlePresetChange}>
               <SelectTrigger className="w-[140px] h-9 bg-background text-xs">
                 <Clock size={14} className="mr-2 text-muted-foreground" />
@@ -291,9 +259,7 @@ export default function SearchPage() {
               </SelectContent>
             </Select>
 
-            {/* RIGHT SIDE: VIEW TOGGLE + SEARCH */}
             <div className="ml-auto flex items-center gap-3">
-              {/* View mode switch */}
               <TooltipProvider>
                 <div className="hidden lg:flex bg-muted/50 p-1 rounded-lg border border-border/50">
                   <Tooltip>
@@ -302,7 +268,7 @@ export default function SearchPage() {
                         type="button"
                         variant={viewMode === "unified" ? "secondary" : "ghost"}
                         size="sm"
-                        onClick={() => setViewMode("unified")}
+                        onClick={() => changeViewMode("unified")}
                         className={`h-7 px-3 text-xs gap-1.5 transition-all ${
                           viewMode === "unified"
                             ? "shadow-sm bg-background text-foreground"
@@ -325,7 +291,7 @@ export default function SearchPage() {
                           viewMode === "segmented" ? "secondary" : "ghost"
                         }
                         size="sm"
-                        onClick={() => setViewMode("segmented")}
+                        onClick={() => changeViewMode("segmented")}
                         className={`h-7 px-3 text-xs gap-1.5 transition-all ${
                           viewMode === "segmented"
                             ? "shadow-sm bg-background text-foreground"
@@ -342,7 +308,6 @@ export default function SearchPage() {
                 </div>
               </TooltipProvider>
 
-              {/* Search button */}
               <Button
                 type="submit"
                 size="sm"
@@ -356,14 +321,13 @@ export default function SearchPage() {
                 {loading ? (
                   <Loader2 size={14} className="animate-spin mr-2" />
                 ) : (
-                  <SearchIcon size={14} className="mr-2" />
+                  <Search size={14} className="mr-2" />
                 )}
                 Search
               </Button>
             </div>
           </div>
 
-          {/* ADVANCED FILTERS */}
           <Collapsible
             open={isAdvancedOpen}
             onOpenChange={setIsAdvancedOpen}
@@ -411,7 +375,6 @@ export default function SearchPage() {
                     })}
                   </div>
                 </div>
-
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">
                     From
@@ -428,7 +391,6 @@ export default function SearchPage() {
                     }
                   />
                 </div>
-
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">
                     To
@@ -451,7 +413,7 @@ export default function SearchPage() {
         </form>
       </div>
 
-      {/* RESULTS AREA */}
+      {/* --- RESULTS AREA --- */}
       <div className="flex-1 min-h-0 min-w-0 w-full overflow-hidden relative bg-background/50 flex flex-col">
         {error && (
           <div className="flex-none p-4 m-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive flex items-center gap-2 text-sm">
@@ -511,7 +473,7 @@ export default function SearchPage() {
         ) : (
           !loading && (
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground space-y-4 opacity-70">
-              <SearchIcon size={48} className="opacity-20" />
+              <Search size={48} className="opacity-20" />
               <p>No events found. Try adjusting your filters.</p>
             </div>
           )
