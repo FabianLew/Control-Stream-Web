@@ -1,109 +1,232 @@
-// schemas.ts
+// /components/lib/schemas.ts
 import { z } from "zod";
 
-export const ConnectionTypeEnum = z.enum(["KAFKA", "RABBIT", "POSTGRES"]);
-export const StreamTypeEnum = z.enum(["KAFKA", "RABBIT", "POSTGRES"]);
-export const CorrelationKeyTypeEnum = z.enum(["HEADER", "PAYLOAD"]);
+// --- CONNECTIONS ---
+const kafkaConnectionConfigSchema = z.object({
+  vendor: z.literal("KAFKA"),
+  host: z.string().min(1),
+  port: z.number().int().positive(),
+  bootstrapServers: z.string().min(1),
+  securityProtocol: z.string().optional(),
+  saslMechanism: z.string().optional(),
+  saslJaasConfig: z.string().optional(),
+  extra: z.record(z.string(), z.string()).optional(),
+});
 
-// Definicja podstawowa
-const baseSchema = z.object({
-  id: z.string().optional(), // Opcjonalne ID dla trybu edycji
-  name: z.string().min(2, "Name must be at least 2 characters"),
+const rabbitConnectionConfigSchema = z.object({
+  vendor: z.literal("RABBIT"),
+  host: z.string().min(1),
+  port: z.number().int().positive(),
+  username: z.string().min(1),
+  password: z.string().min(1),
+  virtualHost: z.string().min(1),
+});
+
+const postgresConnectionConfigSchema = z.object({
+  vendor: z.literal("POSTGRES"),
+  host: z.string().min(1),
+  port: z.number().int().positive(),
+  jdbcUrl: z.string().min(1),
+  username: z.string().min(1),
+  password: z.string().min(1),
+});
+
+export const createConnectionSchema = z.object({
+  name: z.string().min(2),
   type: z.enum(["KAFKA", "RABBIT", "POSTGRES"]),
-  host: z.string().min(1, "Host is required"),
-  port: z.number().int().positive("Port must be a positive number"),
-  username: z.string().optional(),
-  password: z.string().optional(),
-
-  // Metadata jako zagnieżdżony obiekt
-  metadata: z.object({
-    databaseName: z.string().optional(),
-    virtualHost: z.string().optional(),
-    sslEnabled: z.boolean().default(false).optional(),
-    bootstrapServers: z.string().optional(),
-  }),
-
-  // --- NOWE POLA DLA SCHEMA REGISTRY ---
-  schemaRegistryEnabled: z.boolean().default(false),
-  schemaRegistryUrl: z.string().optional(),
-  schemaRegistryAuth: z.enum(["NONE", "BASIC"]).default("NONE").optional(),
-  schemaRegistryUsername: z.string().optional(),
-  schemaRegistryPassword: z.string().optional(),
+  config: z.union([
+    kafkaConnectionConfigSchema,
+    rabbitConnectionConfigSchema,
+    postgresConnectionConfigSchema,
+  ]),
 });
 
-// Dodajemy refine, aby dynamicznie walidować pola w zależności od wyboru
-export const createConnectionSchema = baseSchema.superRefine((data, ctx) => {
-  // 1. Walidacja dla POSTGRES
-  if (data.type === "POSTGRES") {
-    if (!data.metadata.databaseName) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Database name is required for PostgreSQL",
-        path: ["metadata", "databaseName"],
-      });
-    }
-    if (!data.username) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Username is required for PostgreSQL",
-        path: ["username"],
-      });
-    }
-  }
-
-  // 2. Walidacja dla Schema Registry (tylko w Kafka)
-  if (data.type === "KAFKA" && data.schemaRegistryEnabled) {
-    if (!data.schemaRegistryUrl) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Schema Registry URL is required when enabled",
-        path: ["schemaRegistryUrl"],
-      });
-    }
-
-    // Jeśli wybrano Basic Auth, wymagany user i hasło
-    if (data.schemaRegistryAuth === "BASIC") {
-      if (!data.schemaRegistryUsername) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Username is required for Basic Auth",
-          path: ["schemaRegistryUsername"],
-        });
-      }
-      if (!data.schemaRegistryPassword) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Password is required for Basic Auth",
-          path: ["schemaRegistryPassword"],
-        });
-      }
-    }
-  }
-});
-
-// Eksportujemy wywnioskowany typ TypeScript
 export type CreateConnectionFormValues = z.infer<typeof createConnectionSchema>;
 
-// --- STREAM SCHEMA ---
-export const createStreamSchema = z.object({
-  name: z.string().min(3, "Display name is required"),
-  type: StreamTypeEnum,
-  connectionId: z.string().min(1, "Connection is required"),
-  technicalName: z.string().min(1, "Technical name (topic/table) is required"),
-  correlationKeyType: CorrelationKeyTypeEnum,
-  correlationKeyName: z.string().min(1, "Key name is required"),
-
-  // ZMIANA TUTAJ: Rozszerzamy metadata o pola dla Postgresa i RabbitMQ
-  metadata: z
+export const decodingSchema = z.object({
+  schemaSource: z.enum(["SCHEMA_REGISTRY", "FILES", "NONE"]),
+  formatHint: z.enum(["AUTO", "JSON", "AVRO", "PROTO", "TEXT", "BINARY"]),
+  schemaRegistry: z
     .object({
-      consumerGroup: z.string().optional(),
-      partitionCheck: z.boolean().optional(),
+      url: z.string().min(1),
+      authType: z.enum(["NONE", "BASIC"]),
+      username: z.string().optional(),
+      password: z.string().optional(),
+    })
+    .optional(),
 
-      // Nowe pola, o które krzyczy TypeScript:
-      schema: z.string().optional(), // Dla Postgresa
-      shadowQueueEnabled: z.boolean().optional(), // Dla RabbitMQ
+  protoFiles: z
+    .object({
+      bundleId: z.string().min(1),
+      fileGlob: z.string().optional(),
+      fixedMessageFullName: z.string().optional(),
+      typeHeaderName: z.string().optional(),
+      typeHeaderValuePrefix: z.string().optional(),
+    })
+    .optional(),
+
+  avroFiles: z
+    .object({
+      bundleId: z.string().min(1),
+      fileGlob: z.string().optional(),
     })
     .optional(),
 });
 
+const kafkaVendorSchema = z.object({
+  vendor: z.literal("KAFKA"),
+  topic: z.string().optional(),
+  consumerGroupId: z.string().optional(),
+  correlationHeader: z.string().optional(),
+});
+
+const rabbitVendorSchema = z.object({
+  vendor: z.literal("RABBIT"),
+  queue: z.string().optional(),
+  exchange: z.string().optional(),
+  routingKey: z.string().optional(),
+  prefetchCount: z.number().int().positive().optional(),
+  shadowQueueEnabled: z.boolean(), // wymagane!
+  shadowQueueName: z.string().nullable().optional(),
+  correlationHeader: z.string().optional(),
+});
+
+const postgresVendorSchema = z.object({
+  vendor: z.literal("POSTGRES"),
+  schema: z.string().optional(),
+  table: z.string().optional(),
+  correlationColumn: z.string().optional(),
+  timeColumn: z.string().optional(),
+});
+
+export const createStreamSchema = z.object({
+  name: z.string().min(2),
+  type: z.enum(["KAFKA", "RABBIT", "POSTGRES"]),
+  connectionId: z.string().uuid(),
+  technicalName: z.string().min(2),
+  correlationKeyType: z.enum(["HEADER", "COLUMN"]),
+  correlationKeyName: z.string().min(1),
+  vendorConfig: z.union([
+    kafkaVendorSchema,
+    rabbitVendorSchema,
+    postgresVendorSchema,
+  ]),
+  decoding: decodingSchema,
+});
+
 export type CreateStreamFormValues = z.infer<typeof createStreamSchema>;
+
+export const schemaSourceSchema = z.enum(["SCHEMA_REGISTRY", "FILES", "NONE"]);
+export const payloadFormatHintSchema = z.enum([
+  "AUTO",
+  "JSON",
+  "AVRO",
+  "PROTO",
+  "TEXT",
+  "BINARY",
+]);
+export const schemaRegistryAuthTypeSchema = z.enum(["NONE", "BASIC"]);
+
+export const schemaRegistryConfigSchema = z
+  .object({
+    url: z.string().trim().min(1, "Schema Registry URL is required"),
+    authType: schemaRegistryAuthTypeSchema.default("NONE"),
+    username: z.string().optional(),
+    password: z.string().optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.authType === "BASIC") {
+      if (!val.username || val.username.trim() === "") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["username"],
+          message: "Username is required for BASIC auth",
+        });
+      }
+      if (!val.password || val.password.trim() === "") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["password"],
+          message: "Password is required for BASIC auth",
+        });
+      }
+    }
+  });
+
+export const protoFilesConfigSchema = z.object({
+  bundleId: z.string().trim().min(1, "Proto bundleId is required"),
+  fileGlob: z.string().optional(),
+  fixedMessageFullName: z.string().optional(),
+  typeHeaderName: z.string().optional(),
+  typeHeaderValuePrefix: z.string().optional(),
+});
+
+export const avroFilesConfigSchema = z.object({
+  bundleId: z.string().trim().min(1, "Avro bundleId is required"),
+  fileGlob: z.string().optional(),
+});
+
+export const payloadDecodingConfigSchema = z
+  .object({
+    schemaSource: schemaSourceSchema.default("NONE"),
+    formatHint: payloadFormatHintSchema.default("AUTO"),
+    schemaRegistry: schemaRegistryConfigSchema.optional(),
+    protoFiles: protoFilesConfigSchema.optional(),
+    avroFiles: avroFilesConfigSchema.optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.schemaSource === "SCHEMA_REGISTRY") {
+      if (!val.schemaRegistry?.url) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["schemaRegistry", "url"],
+          message: "Schema Registry config is required",
+        });
+      }
+    }
+
+    if (val.schemaSource === "FILES") {
+      if (val.formatHint === "PROTO") {
+        if (!val.protoFiles?.bundleId) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["protoFiles", "bundleId"],
+            message: "Proto bundleId is required",
+          });
+        }
+      }
+
+      if (val.formatHint === "AVRO") {
+        if (!val.avroFiles?.bundleId) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["avroFiles", "bundleId"],
+            message: "Avro bundleId is required",
+          });
+        }
+      }
+
+      if (val.formatHint === "AUTO") {
+        // w AUTO oba są opcjonalne, ale jeśli podane, to muszą być niepuste
+        if (val.protoFiles && !val.protoFiles.bundleId) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["protoFiles", "bundleId"],
+            message: "Proto bundleId cannot be empty",
+          });
+        }
+        if (val.avroFiles && !val.avroFiles.bundleId) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["avroFiles", "bundleId"],
+            message: "Avro bundleId cannot be empty",
+          });
+        }
+      }
+    }
+  });
+
+// (opcjonalnie) eksport typu:
+export type PayloadDecodingFormValues = z.infer<
+  typeof payloadDecodingConfigSchema
+>;

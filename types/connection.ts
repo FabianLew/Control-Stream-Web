@@ -1,16 +1,45 @@
+export type ConnectionType = "KAFKA" | "RABBIT" | "POSTGRES";
+export type ConnectionHealthStatus = "ONLINE" | "OFFLINE" | "UNKNOWN" | "ERROR";
 
-export type ConnectionHealthStatus = 'ONLINE' | 'OFFLINE' | 'UNKNOWN' | 'ERROR';
-export type StreamType = 'KAFKA' | 'RABBITMQ' | 'POSTGRES'
-export type ConnectionType = 'KAFKA' | 'RABBITMQ' | 'POSTGRES';
+export type ConnectionConfigDto =
+  | KafkaConnectionConfigDto
+  | RabbitConnectionConfigDto
+  | PostgresConnectionConfigDto;
+
+export interface KafkaConnectionConfigDto {
+  vendor: "KAFKA";
+  host: string;
+  port: number;
+  bootstrapServers?: string | null;
+  securityProtocol?: string | null;
+  saslMechanism?: string | null;
+  saslJaasConfig?: string | null;
+  extra?: Record<string, string> | null;
+}
+
+export interface RabbitConnectionConfigDto {
+  vendor: "RABBIT";
+  host: string;
+  port: number;
+  username: string;
+  password?: string | null;
+  virtualHost: string;
+}
+
+export interface PostgresConnectionConfigDto {
+  vendor: "POSTGRES";
+  host: string;
+  port: number;
+  jdbcUrl?: string | null;
+  username: string;
+  password?: string | null;
+}
 
 export interface ConnectionDto {
   id: string;
   name: string;
   type: ConnectionType;
-  host: string;
-  port?: number;
-  username?: string;
-  metadata?: string;
+  config: ConnectionConfigDto;
   createdAt: string;
   updatedAt: string;
 }
@@ -22,21 +51,21 @@ export interface ConnectionOverviewDto {
   host: string;
   port: number;
   status: ConnectionHealthStatus;
-  lastCheckedAt: string; // ISO Instant
-  lastErrorMessage?: string;
+  lastCheckedAt: string;
+  lastErrorMessage?: string | null;
 }
 
 export interface ConnectionTestResultDto {
   id: string;
   status: ConnectionHealthStatus;
   checkedAt: string;
-  message?: string;
+  message?: string | null;
 }
 
 export interface ConnectionStreamOverviewDto {
   id: string;
   name: string;
-  type: StreamType;
+  type: "KAFKA" | "RABBIT" | "POSTGRES" | string;
   technicalName: string;
   createdAt: string;
 }

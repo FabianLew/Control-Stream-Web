@@ -5,3 +5,20 @@ import { twMerge } from "tailwind-merge";
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+import type {
+  StreamVendorConfigDto,
+  KafkaStreamVendorConfigDto,
+  RabbitStreamVendorConfigDto,
+  PostgresStreamVendorConfigDto,
+} from "@/types/stream";
+
+const isKafka = (v: StreamVendorConfigDto): v is KafkaStreamVendorConfigDto =>
+  v.vendor === "KAFKA";
+
+const isRabbit = (v: StreamVendorConfigDto): v is RabbitStreamVendorConfigDto =>
+  v.vendor === "RABBIT";
+
+const isPostgres = (
+  v: StreamVendorConfigDto
+): v is PostgresStreamVendorConfigDto => v.vendor === "POSTGRES";

@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ConnectionOverviewDto, ConnectionDto } from '@/types/connection';
-import { updateConnection } from '@/components/lib/api/connections';
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ConnectionOverviewDto, ConnectionDto } from "@/types/connection";
+import { updateConnection } from "@/components/lib/api/connections";
 import { Button } from "@/components/ui/button";
 import { Pencil, Server } from "lucide-react";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
@@ -21,33 +21,33 @@ import {
 
 // Fetcher
 const getConnectionsOverview = async (): Promise<ConnectionOverviewDto[]> => {
-  const res = await fetch('/api/connections/overview');
-  if (!res.ok) throw new Error('Failed to fetch connections');
+  const res = await fetch("/api/connections/overview");
+  if (!res.ok) throw new Error("Failed to fetch connections");
   return res.json();
 };
 
 export function ConnectionList() {
   const queryClient = useQueryClient();
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editingConnection, setEditingConnection] = useState<ConnectionDto | null>(null);
+  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(
+    null
+  );
 
   const { data, isLoading, isError } = useQuery<ConnectionOverviewDto[]>({
-    queryKey: ['connections-overview'],
+    queryKey: ["connections-overview"],
     queryFn: getConnectionsOverview,
   });
 
   const updateMutation = useMutation({
     mutationFn: updateConnection,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['connections-overview'] });
+      queryClient.invalidateQueries({ queryKey: ["connections-overview"] });
       setIsEditOpen(false);
     },
   });
 
   const handleEditClick = (conn: ConnectionOverviewDto) => {
-    // Uwaga: Tutaj normalnie pobrałbyś pełne dane przez API, 
-    // dla uproszczenia rzutujemy, zakładając że Overview ma to co trzeba do edycji
-    setEditingConnection(conn as unknown as ConnectionDto); 
+    setEditingConnectionId(conn.id);
     setIsEditOpen(true);
   };
 
@@ -55,8 +55,18 @@ export function ConnectionList() {
     await updateMutation.mutateAsync(updatedConn);
   };
 
-  if (isLoading) return <div className="p-4 text-sm text-muted-foreground">Loading connections...</div>;
-  if (isError) return <div className="p-4 text-sm text-destructive">Error loading connections.</div>;
+  if (isLoading)
+    return (
+      <div className="p-4 text-sm text-muted-foreground">
+        Loading connections...
+      </div>
+    );
+  if (isError)
+    return (
+      <div className="p-4 text-sm text-destructive">
+        Error loading connections.
+      </div>
+    );
 
   return (
     <>
@@ -76,14 +86,16 @@ export function ConnectionList() {
               <TableRow key={conn.id}>
                 <TableCell>
                   <div className="flex flex-col">
-                    <span className="font-medium text-foreground">{conn.name}</span>
+                    <span className="font-medium text-foreground">
+                      {conn.name}
+                    </span>
                   </div>
                 </TableCell>
-                
+
                 <TableCell>
                   <StreamTypeBadge type={conn.type} />
                 </TableCell>
-                
+
                 <TableCell>
                   {/* Stylizacja spójna z StreamList: font-mono + text-muted-foreground */}
                   <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
@@ -95,17 +107,20 @@ export function ConnectionList() {
                 <TableCell>
                   {/* Stylizacja "Pill" z StreamList zaadaptowana do statusu */}
                   <div className="flex items-center gap-2">
-                      <ConnectionStatusBadge status={conn.status} showLabel={false} />
-                      <span className="px-1.5 py-0.5 rounded border border-border bg-muted/50 uppercase text-[10px] font-medium text-muted-foreground">
-                        {conn.status}
-                      </span>
+                    <ConnectionStatusBadge
+                      status={conn.status}
+                      showLabel={false}
+                    />
+                    <span className="px-1.5 py-0.5 rounded border border-border bg-muted/50 uppercase text-[10px] font-medium text-muted-foreground">
+                      {conn.status}
+                    </span>
                   </div>
                 </TableCell>
 
                 <TableCell className="text-right">
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => handleEditClick(conn)}
                     className="h-8 w-8 p-0 lg:w-auto lg:px-2 lg:h-9"
                   >
@@ -115,10 +130,13 @@ export function ConnectionList() {
                 </TableCell>
               </TableRow>
             ))}
-            
+
             {(!data || data.length === 0) && (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                <TableCell
+                  colSpan={5}
+                  className="h-24 text-center text-muted-foreground"
+                >
                   No connections found.
                 </TableCell>
               </TableRow>
@@ -127,11 +145,10 @@ export function ConnectionList() {
         </Table>
       </div>
 
-      <EditConnectionDialog 
-        open={isEditOpen} 
+      <EditConnectionDialog
+        open={isEditOpen}
         onOpenChange={setIsEditOpen}
-        connection={editingConnection}
-        onSave={handleSaveWrapper}
+        connectionId={editingConnectionId}
       />
     </>
   );

@@ -3,7 +3,8 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopNav } from "@/components/layout/TopNav";
-import { Providers } from "./providers"; // Zaraz stworzymy
+import { Providers } from "./providers";
+import { Toaster } from "sonner";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -24,15 +25,15 @@ export default function RootLayout({
           <div className="flex min-h-screen">
             {/* Lewy panel */}
             <Sidebar />
-            
+
             {/* Główny obszar */}
             <div className="flex-1 ml-[280px] flex flex-col">
               <TopNav />
-              <main className="flex-1 p-8 overflow-auto">
-                {children}
-              </main>
+              <main className="flex-1 p-8 overflow-auto">{children}</main>
             </div>
           </div>
+
+          <Toaster richColors position="top-right" />
         </Providers>
       </body>
     </html>

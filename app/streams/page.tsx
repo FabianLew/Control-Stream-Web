@@ -7,7 +7,7 @@ import { LayoutGrid, List as ListIcon, Plus, X } from "lucide-react";
 
 // UI Components
 import { Button } from "@/components/ui/button";
-import { FilterMultiSelect } from "@/components/ui/filter-multi-select"; // Import nowego komponentu
+import { FilterMultiSelect } from "@/components/ui/filter-multi-select";
 
 // Custom Components
 import { StreamList } from "@/components/stream/StreamList";
@@ -15,46 +15,43 @@ import { StreamGrid } from "@/components/stream/StreamGrid";
 import { EditStreamDialog } from "@/components/stream/EditStreamDialog";
 
 // API & Types
-import { getStreams, updateStream } from "@/components/lib/api/streams";
+import { getStreams, updateStreamCommand } from "@/components/lib/api/streams";
 import { getConnections } from "@/components/lib/api/connections";
-import { UnifiedStreamDto } from "@/types/stream";
+import type { UnifiedStreamDto, EditStreamCommand } from "@/types/stream";
 
 export default function StreamsPage() {
   const queryClient = useQueryClient();
 
   // --- STATE ---
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-
-  // ZMIANA: Teraz przechowujemy tablicę ID, a nie pojedynczy string
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>(
     []
   );
 
-  // Stan edycji (Dialog)
+  // Dialog state
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingStream, setEditingStream] = useState<UnifiedStreamDto | null>(
     null
   );
 
   // --- DATA FETCHING ---
-  // 1. Pobieramy wszystkie strumienie
   const { data: streams, isLoading: isStreamsLoading } = useQuery({
     queryKey: ["streams"],
     queryFn: getStreams,
   });
 
-  // 2. Pobieramy połączenia (do wypełnienia filtra)
   const { data: connections, isLoading: isConnectionsLoading } = useQuery({
     queryKey: ["connections-list-filter"],
     queryFn: getConnections,
   });
 
-  // --- MUTATIONS ---
+  // --- MUTATION ---
   const updateMutation = useMutation({
-    mutationFn: updateStream,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["streams"] });
+    mutationFn: updateStreamCommand, // { id, command }
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["streams"] });
       setIsEditOpen(false);
+      setEditingStream(null);
     },
   });
 
@@ -64,24 +61,20 @@ export default function StreamsPage() {
     setIsEditOpen(true);
   };
 
-  const handleSaveWrapper = async (updatedStream: UnifiedStreamDto) => {
-    await updateMutation.mutateAsync(updatedStream);
+  // Nowy kontrakt spójny z backendem: (id, command)
+  const handleSaveWrapper = async (id: string, command: EditStreamCommand) => {
+    await updateMutation.mutateAsync({ id, command });
   };
 
   // --- FILTERING LOGIC ---
   const filteredStreams = useMemo(() => {
     if (!streams) return [];
-
-    // Jeśli tablica pusta -> pokazujemy wszystko
     if (selectedConnectionIds.length === 0) return streams;
-
-    // Filtrowanie po wielu ID
     return streams.filter((s) =>
       selectedConnectionIds.includes(s.connectionId)
     );
   }, [streams, selectedConnectionIds]);
 
-  // Helper do usuwania pojedynczego filtra z paska aktywnych filtrów
   const removeConnectionFilter = (id: string) => {
     setSelectedConnectionIds((prev) => prev.filter((item) => item !== id));
   };
@@ -100,11 +93,10 @@ export default function StreamsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* 1. FILTER MULTISELECT (Connections) */}
-          <div className="w-[200px]">
+          {/* FILTER MULTISELECT */}
+          <div className="w-[220px]">
             <FilterMultiSelect
               title="Connections"
-              // Mapujemy Twoje dane connections na format { id, label }
               options={
                 connections?.map((conn) => ({
                   id: conn.id,
@@ -118,7 +110,7 @@ export default function StreamsPage() {
             />
           </div>
 
-          {/* 2. VIEW TOGGLE (Grid/List) */}
+          {/* VIEW TOGGLE */}
           <div className="flex items-center p-1 rounded-lg border bg-muted/40 text-muted-foreground">
             <button
               onClick={() => setViewMode("grid")}
@@ -128,6 +120,7 @@ export default function StreamsPage() {
                   : "hover:text-foreground"
               }`}
               title="Grid View"
+              type="button"
             >
               <LayoutGrid size={18} />
             </button>
@@ -139,12 +132,13 @@ export default function StreamsPage() {
                   : "hover:text-foreground"
               }`}
               title="List View"
+              type="button"
             >
               <ListIcon size={18} />
             </button>
           </div>
 
-          {/* 3. ADD BUTTON */}
+          {/* ADD BUTTON */}
           <Button asChild className="gap-2">
             <Link href="/streams/create">
               <Plus size={16} />
@@ -154,8 +148,7 @@ export default function StreamsPage() {
         </div>
       </div>
 
-      {/* --- ACTIVE FILTER INDICATOR --- */}
-      {/* Wyświetlamy aktywne filtry jako badge, które można usunąć */}
+      {/* --- ACTIVE FILTERS --- */}
       {selectedConnectionIds.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-sm animate-in fade-in slide-in-from-left-2">
           <span className="text-muted-foreground">Active Filter:</span>
@@ -172,6 +165,7 @@ export default function StreamsPage() {
                 <button
                   onClick={() => removeConnectionFilter(id)}
                   className="ml-1 hover:text-primary/70 transition-colors"
+                  type="button"
                 >
                   <X size={12} />
                 </button>
@@ -184,13 +178,14 @@ export default function StreamsPage() {
             size="sm"
             className="h-5 px-2 text-[10px] text-muted-foreground hover:text-foreground"
             onClick={() => setSelectedConnectionIds([])}
+            type="button"
           >
             Clear all
           </Button>
         </div>
       )}
 
-      {/* --- CONTENT AREA --- */}
+      {/* --- CONTENT --- */}
       {viewMode === "grid" ? (
         <StreamGrid
           streams={filteredStreams}
@@ -205,12 +200,12 @@ export default function StreamsPage() {
         />
       )}
 
-      {/* --- DIALOG --- */}
+      {/* --- EDIT DIALOG --- */}
       <EditStreamDialog
         open={isEditOpen}
         onOpenChange={setIsEditOpen}
         stream={editingStream}
-        onSave={handleSaveWrapper}
+        onSave={handleSaveWrapper} // (id, command)
       />
     </main>
   );
