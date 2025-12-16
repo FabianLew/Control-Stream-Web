@@ -1,5 +1,5 @@
 // /types/stream.ts
-
+import type { ConnectionConfigDto } from "./connection";
 export type StreamType = "KAFKA" | "RABBIT" | "POSTGRES";
 export type CorrelationKeyType = "HEADER" | "COLUMN";
 
@@ -89,6 +89,21 @@ export interface UnifiedStreamDto {
   createdAt: string;
   updatedAt: string;
 }
+
+export type StreamOverviewDto = {
+  id: string;
+  name: string;
+  type: StreamType;
+  technicalName: string;
+
+  vendorConfig: StreamVendorConfigDto;
+  decoding: PayloadDecodingConfigDto;
+
+  connectionId: string;
+  connectionName: string;
+  connectionType: StreamType;
+  connectionConfig: ConnectionConfigDto;
+};
 
 export type CreateStreamCommand = Omit<
   UnifiedStreamDto,

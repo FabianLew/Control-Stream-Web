@@ -42,6 +42,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
 import { DecodingConfigCard } from "@/components/stream/DecodingConfigCard";
+import { handleInvalidSubmit } from "@/components/lib/formError";
 
 import {
   Loader2,
@@ -326,6 +327,10 @@ export function StreamForm({
       const payload = buildPayload(data);
       await onSubmit(payload);
 
+      if (payload.decoding?.schemaRegistry) {
+        delete (payload.decoding.schemaRegistry as any).enabled;
+      }
+
       if (navigateAfterSubmit) {
         router.push("/streams");
         router.refresh();
@@ -342,8 +347,12 @@ export function StreamForm({
 
   return (
     <form
-      onSubmit={form.handleSubmit(submit)}
-      className="space-y-8 animate-in slide-in-from-bottom-4 duration-500"
+      onSubmit={form.handleSubmit(onSubmit, (errors) =>
+        handleInvalidSubmit(errors, {
+          title: mode === "edit" ? "Stream not updated" : "Stream not created",
+          description: "Please correct the highlighted fields and try again.",
+        })
+      )}
     >
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         {/* LEFT */}

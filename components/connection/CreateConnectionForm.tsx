@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
+import { handleInvalidSubmit } from "@/components/lib/formError";
 
 const VendorIcon = ({ type }: { type: string }) => {
   if (type === "KAFKA") return <Activity className="text-purple-500 h-6 w-6" />;
@@ -64,6 +65,7 @@ const defaultKafkaValues: DefaultValues<CreateConnectionFormValues> = {
     vendor: "KAFKA",
     host: "localhost",
     port: 9092,
+    bootstrapServers: "localhost:9092",
     securityProtocol: "PLAINTEXT",
     saslMechanism: "",
     saslJaasConfig: "",
@@ -154,6 +156,19 @@ export function ConnectionForm({ initialData }: ConnectionFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedType]);
 
+  useEffect(() => {
+    if (selectedType !== "KAFKA") return;
+
+    const host = (configHost || "localhost").trim();
+    const port =
+      typeof configPort === "number" && configPort > 0 ? configPort : 9092;
+
+    form.setValue("config.bootstrapServers", `${host}:${port}`, {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+  }, [selectedType, configHost, configPort, form]);
+
   const vendorTitle = useMemo(() => {
     if (selectedType === "POSTGRES") return "Database Configuration";
     if (selectedType === "KAFKA") return "Cluster Configuration";
@@ -176,8 +191,9 @@ export function ConnectionForm({ initialData }: ConnectionFormProps) {
 
       // Backend: KafkaConnectionConfigDto ma bootstrapServers. Ustawiamy spójnie.
       if (payload.type === "KAFKA") {
-        payload.config.bootstrapServers = `${payload.config.host}:${payload.config.port}`;
-        // sensowne defaulty jeśli user nie ustawił:
+        if (!payload.config.bootstrapServers) {
+          payload.config.bootstrapServers = `${payload.config.host}:${payload.config.port}`;
+        }
         if (!payload.config.securityProtocol)
           payload.config.securityProtocol = "PLAINTEXT";
         if (payload.config.saslMechanism === "")
@@ -274,7 +290,12 @@ export function ConnectionForm({ initialData }: ConnectionFormProps) {
 
   return (
     <form
-      onSubmit={form.handleSubmit(onSubmit)}
+      onSubmit={form.handleSubmit(onSubmit, (errors) =>
+        handleInvalidSubmit(errors, {
+          title: "Connection not saved",
+          description: "Please correct the highlighted fields and try again.",
+        })
+      )}
       className="space-y-8 animate-in slide-in-from-bottom-4 duration-500"
     >
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
@@ -421,6 +442,24 @@ export function ConnectionForm({ initialData }: ConnectionFormProps) {
               {/* KAFKA */}
               {selectedType === "KAFKA" && (
                 <div className="space-y-4 animate-in fade-in">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                      Bootstrap Servers
+                    </label>
+                    <Input
+                      {...form.register("config.bootstrapServers")}
+                      readOnly
+                      className="bg-muted/20 font-mono text-sm"
+                    />
+                    {configErrors?.bootstrapServers && (
+                      <p className="text-destructive text-xs">
+                        {configErrors.bootstrapServers.message}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground">
+                      Auto-generated from Host and Port.
+                    </p>
+                  </div>
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                       Security Protocol

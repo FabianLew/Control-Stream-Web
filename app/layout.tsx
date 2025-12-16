@@ -15,21 +15,31 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="en" className="dark">
       <body className={inter.className}>
         <Providers>
-          <div className="flex min-h-screen">
-            {/* Lewy panel */}
+          <div className="min-h-screen bg-background">
+            {/* Sidebar - fixed, never scrolls */}
             <Sidebar />
 
-            {/* Główny obszar */}
-            <div className="flex-1 ml-[280px] flex flex-col">
+            {/* Main shell */}
+            <div
+              className="pl-[280px] min-h-screen flex flex-col"
+              style={{
+                ["--sidebar-width" as any]: "280px",
+                ["--topnav-height" as any]: "64px",
+              }}
+            >
               <TopNav />
-              <main className="flex-1 p-8 overflow-auto">{children}</main>
+
+              {/* scroll container */}
+              <main id="app-scroll" className="flex-1 overflow-auto relative">
+                {children}
+              </main>
             </div>
           </div>
 

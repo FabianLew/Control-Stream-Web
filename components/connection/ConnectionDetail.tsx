@@ -1,27 +1,45 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import Link from 'next/link';
-import { 
-  ArrowLeft, 
-  Activity, 
-  Server, 
-  Clock, 
+import React, { useMemo, useState } from "react";
+import Link from "next/link";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  Activity,
+  Server,
+  Clock,
   Database,
   Hash,
-  Calendar,
   Layers,
-  PlayCircle
-} from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+  PlayCircle,
+  ExternalLink,
+  Copy,
+  ChevronUp,
+  ShieldCheck,
+  AlertTriangle,
+  Settings2,
+  Braces,
+} from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 
-// UI Components
+// UI
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Table,
   TableBody,
@@ -31,289 +49,550 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// Custom Components & Types
-import { ConnectionStatusBadge } from './ConnectionStatusBadge';
+// Custom
+import { ConnectionStatusBadge } from "./ConnectionStatusBadge";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
-import { 
-  ConnectionOverviewDto, 
-  ConnectionStreamOverviewDto, 
-  ConnectionTestResultDto 
-} from '@/types/connection';
+import { KeyValueRow } from "@/components/shared/KeyValueRow";
+import { JsonBlock } from "@/components/shared/JsonBlock";
+import { CopyButton } from "@/components/shared/CopyButton";
+
+// Types
+import type {
+  ConnectionOverviewDto,
+  ConnectionStreamOverviewDto,
+  ConnectionTestResultDto,
+} from "@/types/connection";
 
 interface Props {
   id: string;
 }
 
-// --- API Fetchers ---
+// --- API ---
 const fetchConnection = async (id: string): Promise<ConnectionOverviewDto> => {
   const res = await fetch(`/api/connections/${id}/overview`);
-  if (!res.ok) throw new Error('Failed to fetch connection');
+  if (!res.ok) throw new Error("Failed to fetch connection");
   return res.json();
 };
 
-const fetchStreams = async (id: string): Promise<ConnectionStreamOverviewDto[]> => {
+const fetchStreams = async (
+  id: string
+): Promise<ConnectionStreamOverviewDto[]> => {
   const res = await fetch(`/api/streams/connection/${id}`);
-  if (!res.ok) throw new Error('Failed to fetch streams');
+  if (!res.ok) throw new Error("Failed to fetch streams");
   return res.json();
 };
 
-const testConnectionApi = async (id: string): Promise<ConnectionTestResultDto> => {
-  const res = await fetch(`/api/connections/${id}/test`, { method: 'POST' });
-  if (!res.ok) throw new Error('Test failed');
+const testConnectionApi = async (
+  id: string
+): Promise<ConnectionTestResultDto> => {
+  const res = await fetch(`/api/connections/${id}/test`, { method: "POST" });
+  if (!res.ok) throw new Error("Test failed");
   return res.json();
 };
 
-const getVendorConfig = (type: string) => {
-  const t = type ? type.toUpperCase() : '';
-  if (t.includes('KAFKA')) return { color: 'text-purple-600', bg: 'bg-purple-100', border: 'border-purple-200', icon: Activity };
-  if (t.includes('RABBIT')) return { color: 'text-orange-600', bg: 'bg-orange-100', border: 'border-orange-200', icon: Layers };
-  if (t.includes('POSTGRES') || t.includes('DB')) return { color: 'text-blue-600', bg: 'bg-blue-100', border: 'border-blue-200', icon: Database };
-  return { color: 'text-slate-600', bg: 'bg-slate-100', border: 'border-slate-200', icon: Server };
-};
+// --- UI helpers ---
+function vendorTone(type: string) {
+  const t = (type ?? "").toUpperCase();
+
+  if (t.includes("KAFKA")) {
+    return {
+      label: "KAFKA",
+      icon: Activity,
+      ring: "ring-purple-500/20",
+      fg: "text-purple-400",
+      bg: "bg-purple-500/10",
+      border: "border-purple-500/20",
+    };
+  }
+  if (t.includes("RABBIT")) {
+    return {
+      label: "RABBIT",
+      icon: Layers,
+      ring: "ring-orange-500/20",
+      fg: "text-orange-400",
+      bg: "bg-orange-500/10",
+      border: "border-orange-500/20",
+    };
+  }
+  if (t.includes("POSTGRES") || t.includes("DB")) {
+    return {
+      label: "POSTGRES",
+      icon: Database,
+      ring: "ring-blue-500/20",
+      fg: "text-blue-400",
+      bg: "bg-blue-500/10",
+      border: "border-blue-500/20",
+    };
+  }
+  return {
+    label: "GENERIC",
+    icon: Server,
+    ring: "ring-slate-500/20",
+    fg: "text-slate-300",
+    bg: "bg-slate-500/10",
+    border: "border-slate-500/20",
+  };
+}
+
+function SectionLandmark({
+  icon: Icon,
+  title,
+  hint,
+}: {
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  title: string;
+  hint?: string;
+}) {
+  return (
+    <div className="flex items-end justify-between gap-3">
+      <div className="flex items-center gap-2">
+        <Icon size={16} className="text-primary" />
+        <div className="text-xs uppercase tracking-wider text-muted-foreground">
+          {title}
+        </div>
+      </div>
+      {hint ? (
+        <div className="text-xs text-muted-foreground">{hint}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function humanCheckedAt(instant?: string | null) {
+  if (!instant) return { primary: "Never", secondary: null as string | null };
+  const date = new Date(instant);
+  return {
+    primary: date.toLocaleString(),
+    secondary: `(${formatDistanceToNow(date, { addSuffix: true })})`,
+  };
+}
 
 export const ConnectionDetail = ({ id }: Props) => {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState("overview");
 
   const { data: connection, isLoading: isConnLoading } = useQuery({
-    queryKey: ['connection', id],
+    queryKey: ["connection", id],
     queryFn: () => fetchConnection(id),
   });
 
   const { data: streams, isLoading: isStreamsLoading } = useQuery({
-    queryKey: ['connection-streams', id],
+    queryKey: ["connection-streams", id],
     queryFn: () => fetchStreams(id),
   });
 
   const testMutation = useMutation({
     mutationFn: () => testConnectionApi(id),
     onSuccess: (result) => {
-      queryClient.setQueryData(['connection', id], (old: ConnectionOverviewDto) => ({
-        ...old,
-        status: result.status,
-        lastCheckedAt: result.checkedAt,
-        lastErrorMessage: result.message
-      }));
-    }
+      queryClient.setQueryData(
+        ["connection", id],
+        (old?: ConnectionOverviewDto) =>
+          old
+            ? {
+                ...old,
+                status: result.status,
+                lastCheckedAt: result.checkedAt,
+                lastErrorMessage: result.message,
+              }
+            : old
+      );
+    },
   });
 
-  if (isConnLoading) return <div className="p-8"><Skeleton className="h-12 w-1/3 mb-6" /><Skeleton className="h-64 w-full" /></div>;
-  if (!connection) return <div className="p-8 text-destructive">Connection not found</div>;
+  const [rawOpen, setRawOpen] = useState(false);
 
-  const vendorStyle = getVendorConfig(connection.type);
-  const VendorIcon = vendorStyle.icon;
+  if (isConnLoading) return <ConnectionSkeleton />;
+  if (!connection)
+    return <div className="p-8 text-destructive">Connection not found</div>;
+
+  const tone = vendorTone(String(connection.type));
+  const VendorIcon = tone.icon;
+
+  const hostPort = `${connection.host}:${connection.port}`;
+  const checked = humanCheckedAt(connection.lastCheckedAt as any);
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6 fade-in">
-      {/* 1. Breadcrumb */}
-      <Link href="/connections" className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors">
-        <ArrowLeft size={16} className="mr-1" /> Back to Connections
+      {/* Breadcrumb */}
+      <Link
+        href="/connections"
+        className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors w-fit group"
+      >
+        <ArrowLeft
+          size={16}
+          className="mr-1 group-hover:-translate-x-1 transition-transform"
+        />
+        Back to Connections
       </Link>
 
-      {/* 2. Header & Actions */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div className="flex items-center gap-4">
-           <div className={`w-14 h-14 rounded-xl flex items-center justify-center border shadow-sm ${vendorStyle.bg} ${vendorStyle.color} ${vendorStyle.border}`}>
-              <VendorIcon size={28} />
-           </div>
-           
-           <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-3">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-border pb-5">
+        <div className="flex items-start gap-4">
+          <div
+            className={[
+              "w-12 h-12 rounded-xl flex items-center justify-center border",
+              "shadow-sm",
+              tone.bg,
+              tone.border,
+              tone.ring,
+              "ring-1",
+            ].join(" ")}
+          >
+            <VendorIcon className={tone.fg} size={22} />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
                 {connection.name}
-                <ConnectionStatusBadge status={connection.status} />
               </h1>
-              
-              <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                 <span className="font-mono text-xs">{connection.id.slice(0, 8)}...</span>
-                 <span className="text-border">|</span>
-                 
-                 {/* ZMIANA: Powiększony Badge w nagłówku (text-sm + font-medium) */}
-                 <StreamTypeBadge 
-                    type={connection.type} 
-                    className="text-sm px-2.5 py-0.5 font-medium" 
-                 />
+
+              <ConnectionStatusBadge status={connection.status} />
+
+              <StreamTypeBadge
+                type={connection.type as any}
+                className="text-sm px-2.5 py-0.5 border-2"
+              />
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 font-mono bg-muted/50 px-2 py-0.5 rounded text-xs">
+                <Hash size={12} />
+                {String(connection.id)}
+                <CopyButton
+                  text={connection.id}
+                  label="Value"
+                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                />
               </div>
-           </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground/70">Endpoint:</span>
+                <span className="font-mono text-xs">{hostPort}</span>
+                <CopyButton
+                  text={hostPort}
+                  label="Value"
+                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
-        <Button 
-          onClick={() => testMutation.mutate()}
-          disabled={testMutation.isPending}
-          variant={testMutation.isPending ? "outline" : "default"}
-          className="shadow-sm"
-        >
-          <Activity size={16} className={`mr-2 ${testMutation.isPending ? "animate-spin" : ""}`} />
-          {testMutation.isPending ? 'Checking...' : 'Run Health Check'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={() => testMutation.mutate()}
+            disabled={testMutation.isPending}
+            variant={testMutation.isPending ? "outline" : "default"}
+            className="shadow-sm gap-2"
+          >
+            <Activity
+              size={16}
+              className={testMutation.isPending ? "animate-spin" : ""}
+            />
+            {testMutation.isPending ? "Checking..." : "Run Health Check"}
+          </Button>
+
+          <Button variant="outline" className="shadow-sm gap-2">
+            <Settings2 size={16} />
+            Configure
+          </Button>
+        </div>
       </div>
 
-      {/* 3. Main Content */}
-      <Tabs defaultValue="overview" className="w-full" onValueChange={setActiveTab}>
-        <TabsList className="grid w-full md:w-auto grid-cols-2">
+      {/* Content */}
+      <Tabs defaultValue="overview" className="w-full space-y-6">
+        <TabsList className="w-full md:w-auto grid grid-cols-2 h-10 rounded-md bg-muted p-1 text-muted-foreground">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="streams">Streams</TabsTrigger>
         </TabsList>
 
-        {/* --- TAB: OVERVIEW --- */}
-        <TabsContent value="overview" className="space-y-6 mt-6 fade-in">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            
-            {/* 3.1 Status KPI Widget */}
-            <Card className="md:col-span-1 shadow-sm border-border">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Connection Status</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-col gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="scale-125 origin-left py-1"> 
-                      <ConnectionStatusBadge status={connection.status} showLabel={true} />
+        {/* OVERVIEW */}
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Left */}
+            <div className="lg:col-span-2 space-y-8">
+              <div className="space-y-3">
+                <SectionLandmark
+                  icon={Server}
+                  title="Connection identity"
+                  hint={tone.label}
+                />
+                <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
+                  <CardHeader className="bg-muted/30 border-b border-border/40">
+                    <CardTitle className="text-base">Identity</CardTitle>
+                    <CardDescription>
+                      Core connection fields used by streams and health checks.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-6 space-y-5">
+                    <KeyValueRow
+                      label="Name"
+                      value={
+                        <span className="font-medium">{connection.name}</span>
+                      }
+                    />
+                    <KeyValueRow
+                      label="Type"
+                      value={<StreamTypeBadge type={connection.type as any} />}
+                    />
+                    <KeyValueRow
+                      label="Host"
+                      value={
+                        <span className="font-mono text-sm">{hostPort}</span>
+                      }
+                      mono
+                      copyText={hostPort}
+                    />
+                    <KeyValueRow
+                      label="Connection ID"
+                      value={
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {String(connection.id)}
+                        </span>
+                      }
+                      mono
+                      copyText={String(connection.id)}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="space-y-3">
+                <SectionLandmark
+                  icon={Braces}
+                  title="Raw connection data"
+                  hint="Support view"
+                />
+                <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
+                  <CardHeader className="bg-muted/30 border-b border-border/40">
+                    <CardTitle className="text-base">Raw JSON</CardTitle>
+                    <CardDescription>
+                      Use for debugging UI mapping, status refresh and DTO
+                      drift.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-6 space-y-5">
+                    <Collapsible open={rawOpen} onOpenChange={setRawOpen}>
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-medium">
+                          ConnectionOverviewDto
+                        </div>
+                        <CollapsibleTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            {rawOpen ? "Hide JSON" : "Show JSON"}
+                          </Button>
+                        </CollapsibleTrigger>
+                      </div>
+                      <CollapsibleContent className="mt-3">
+                        <JsonBlock value={connection} />
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            {/* Right sticky column */}
+            <div className="space-y-6 sticky top-[140px] self-start">
+              <div className="space-y-3">
+                <SectionLandmark
+                  icon={ShieldCheck}
+                  title="Health status"
+                  hint="Sticky card"
+                />
+                <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
+                  <CardHeader className="bg-muted/30 border-b border-border/40">
+                    <CardTitle className="text-base">
+                      Connection health
+                    </CardTitle>
+                    <CardDescription>
+                      Always visible while you scroll.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-6 space-y-5">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                        Status
+                      </div>
+                      <ConnectionStatusBadge
+                        status={connection.status}
+                        showLabel={true}
+                      />
                     </div>
-                  </div>
-                  
-                  {(connection.status === 'ERROR' || connection.status === 'OFFLINE') && connection.lastErrorMessage && (
-                    <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md text-xs text-destructive">
-                      <p className="font-semibold mb-1">Error Message:</p>
-                      {connection.lastErrorMessage}
+
+                    {(connection.status === "ERROR" ||
+                      connection.status === "OFFLINE") &&
+                    connection.lastErrorMessage ? (
+                      <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3">
+                        <div className="flex items-center gap-2 text-destructive text-xs font-medium">
+                          <AlertTriangle size={14} />
+                          Last error
+                        </div>
+                        <div className="mt-2 text-xs text-destructive/90">
+                          {connection.lastErrorMessage}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <Separator />
+
+                    <KeyValueRow
+                      label="Last checked"
+                      value={
+                        <div className="space-y-1">
+                          <div className="text-sm font-medium text-foreground">
+                            {checked.primary}
+                          </div>
+                          {checked.secondary ? (
+                            <div className="text-xs text-muted-foreground">
+                              {checked.secondary}
+                            </div>
+                          ) : null}
+                        </div>
+                      }
+                    />
+
+                    <div className="pt-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="w-full justify-between text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          const scroller =
+                            document.getElementById("app-scroll");
+                          if (scroller) {
+                            scroller.scrollTo({ top: 0, behavior: "smooth" });
+                          } else {
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }
+                        }}
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <ChevronUp size={14} />
+                          Back to top
+                        </span>
+                        <span className="opacity-60">↑</span>
+                      </Button>
                     </div>
-                  )}
+                  </CardContent>
+                </Card>
+              </div>
 
-                  <div className="pt-4 border-t border-border mt-2">
-                     <div className="flex items-center text-sm text-muted-foreground">
-                        <Clock size={14} className="mr-2" />
-                        Last checked:
-                     </div>
-                     <p className="text-sm font-medium mt-1 text-foreground pl-6">
-                       {connection.lastCheckedAt 
-                         ? new Date(connection.lastCheckedAt).toLocaleString() 
-                         : 'Never'}
-                     </p>
-                     <p className="text-xs text-muted-foreground pl-6 mt-0.5">
-                       {connection.lastCheckedAt && `(${formatDistanceToNow(new Date(connection.lastCheckedAt), { addSuffix: true })})`}
-                     </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* 3.2 Connection Details Widget */}
-            <Card className="md:col-span-2 shadow-sm border-border">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Connection Details</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-12 mt-2">
-                   
-                   <div className="space-y-1">
-                      <div className="flex items-center text-xs text-muted-foreground mb-1">
-                        <Server size={12} className="mr-1.5" /> Host
-                      </div>
-                      <div className="font-mono text-sm bg-muted/40 p-2 rounded border border-border w-fit text-foreground">
-                        {connection.host}:{connection.port}
-                      </div>
-                   </div>
-
-                   <div className="space-y-1">
-                      <div className="flex items-center text-xs text-muted-foreground mb-1">
-                        <Database size={12} className="mr-1.5" /> Type
-                      </div>
-                      {/* ZMIANA: Nieco większy badge w detalach (text-xs zamiast 10px) */}
-                      <div>
-                        <StreamTypeBadge type={connection.type} className="text-xs" />
-                      </div>
-                   </div>
-
-                   <div className="space-y-1">
-                      <div className="flex items-center text-xs text-muted-foreground mb-1">
-                        <Hash size={12} className="mr-1.5" /> Connection ID
-                      </div>
-                      <div className="font-mono text-xs text-muted-foreground">{connection.id}</div>
-                   </div>
-
-                   <div className="space-y-1">
-                      <div className="flex items-center text-xs text-muted-foreground mb-1">
-                         <Calendar size={12} className="mr-1.5" /> Created At
-                      </div>
-                      <div className="text-sm text-muted-foreground">Dec 06, 2025 (Mocked)</div>
-                   </div>
-
-                </div>
-              </CardContent>
-            </Card>
+              <Card className="rounded-xl border-dashed border-border/60 bg-muted/5 opacity-70">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+                    <Clock size={14} /> Auto checks
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-xs text-muted-foreground pb-6">
+                  Scheduling / retries will appear here in a future update.
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </TabsContent>
 
-        {/* --- TAB: STREAMS --- */}
-        <TabsContent value="streams" className="mt-6 fade-in">
-          <Card className="shadow-sm border-border">
+        {/* STREAMS */}
+        <TabsContent value="streams">
+          <Card className="shadow-sm border-border/60 rounded-xl overflow-hidden">
             <CardHeader className="px-6 py-4 border-b border-border bg-muted/20">
               <div className="flex items-center justify-between">
                 <div>
-                   <CardTitle className="text-base font-semibold">Active Streams</CardTitle>
-                   <CardDescription className="mt-1">
-                     {streams?.length 
-                       ? `${streams.length} stream${streams.length === 1 ? '' : 's'} connected and configured.` 
-                       : 'No streams configured.'}
-                   </CardDescription>
+                  <CardTitle className="text-base font-semibold">
+                    Streams
+                  </CardTitle>
+                  <CardDescription className="mt-1">
+                    {streams?.length
+                      ? `${streams.length} stream${
+                          streams.length === 1 ? "" : "s"
+                        } connected and configured.`
+                      : "No streams configured."}
+                  </CardDescription>
                 </div>
+
+                <Button variant="outline" className="gap-2">
+                  <Layers size={16} />
+                  Create stream
+                </Button>
               </div>
             </CardHeader>
-            
+
             <CardContent className="p-0">
-               {isStreamsLoading ? (
-                 <div className="p-6 space-y-3">
-                     <Skeleton className="h-10 w-full" />
-                     <Skeleton className="h-10 w-full" />
-                 </div>
-               ) : (!streams || streams.length === 0) ? (
-                  <div className="p-12 text-center text-muted-foreground flex flex-col items-center">
-                    <Layers size={48} className="text-muted-foreground/30 mb-4" />
-                    <p>No streams found for this connection.</p>
-                    <Button variant="link" className="mt-2 text-primary">Configure new stream</Button>
-                  </div>
-               ) : (
-                 <Table>
-                   <TableHeader className="bg-muted/40">
-                     <TableRow>
-                       <TableHead className="pl-6">Stream Name</TableHead>
-                       <TableHead>Technical Name</TableHead>
-                       <TableHead>Type</TableHead>
-                       <TableHead>Status</TableHead>
-                       <TableHead>Created</TableHead>
-                       <TableHead className="text-right pr-6">Actions</TableHead>
-                     </TableRow>
-                   </TableHeader>
-                   <TableBody>
-                     {streams.map((stream) => (
-                       <TableRow key={stream.id} className="hover:bg-muted/30">
-                         <TableCell className="pl-6 font-medium">
+              {isStreamsLoading ? (
+                <div className="p-6 space-y-3">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              ) : !streams || streams.length === 0 ? (
+                <div className="p-12 text-center text-muted-foreground flex flex-col items-center">
+                  <Layers size={48} className="text-muted-foreground/30 mb-4" />
+                  <p>No streams found for this connection.</p>
+                  <Button variant="link" className="mt-2 text-primary">
+                    Configure new stream
+                  </Button>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader className="bg-muted/40">
+                    <TableRow>
+                      <TableHead className="pl-6">Stream Name</TableHead>
+                      <TableHead>Technical Name</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead className="text-right pr-6">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+
+                  <TableBody>
+                    {streams.map((stream) => (
+                      <TableRow key={stream.id} className="hover:bg-muted/30">
+                        <TableCell className="pl-6 font-medium">
+                          <Link
+                            href={`/streams/${stream.id}`}
+                            className="hover:underline hover:text-primary transition-colors"
+                          >
                             {stream.name}
-                         </TableCell>
-                         <TableCell className="font-mono text-xs text-muted-foreground">
-                            {stream.technicalName}
-                         </TableCell>
-                         <TableCell>
-                            {/* W tabeli zostawiamy standardowy rozmiar (mały) */}
-                            <StreamTypeBadge type={stream.type} />
-                         </TableCell>
-                         <TableCell>
-                            <Badge variant="outline" className="text-xs font-normal border-emerald-500/20 bg-emerald-500/10 text-emerald-500">
-                               Active
-                            </Badge>
-                         </TableCell>
-                         <TableCell className="text-muted-foreground text-sm">
-                            {new Date(stream.createdAt).toLocaleDateString()}
-                         </TableCell>
-                         <TableCell className="text-right pr-6">
-                            <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary">
-                              <PlayCircle size={16} />
-                            </Button>
-                         </TableCell>
-                       </TableRow>
-                     ))}
-                   </TableBody>
-                 </Table>
-               )}
+                          </Link>
+                        </TableCell>
+
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {stream.technicalName}
+                        </TableCell>
+
+                        <TableCell>
+                          <StreamTypeBadge type={stream.type as any} />
+                        </TableCell>
+
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className="text-xs font-normal border-emerald-500/20 bg-emerald-500/10 text-emerald-500"
+                          >
+                            Active
+                          </Badge>
+                        </TableCell>
+
+                        <TableCell className="text-muted-foreground text-sm">
+                          {stream.createdAt
+                            ? new Date(stream.createdAt).toLocaleDateString()
+                            : "—"}
+                        </TableCell>
+
+                        <TableCell className="text-right pr-6">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 hover:text-primary"
+                          >
+                            <PlayCircle size={16} />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -321,3 +600,31 @@ export const ConnectionDetail = ({ id }: Props) => {
     </div>
   );
 };
+
+function ConnectionSkeleton() {
+  return (
+    <div className="p-8 space-y-8 max-w-7xl mx-auto">
+      <Skeleton className="h-4 w-40" />
+      <div className="flex justify-between items-end">
+        <div className="space-y-2">
+          <Skeleton className="h-10 w-72" />
+          <Skeleton className="h-4 w-96" />
+        </div>
+        <Skeleton className="h-10 w-44" />
+      </div>
+
+      <Skeleton className="h-10 w-72 rounded-md" />
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+          <Skeleton className="h-[240px] rounded-xl" />
+          <Skeleton className="h-[220px] rounded-xl" />
+        </div>
+        <div className="space-y-6">
+          <Skeleton className="h-[340px] rounded-xl" />
+          <Skeleton className="h-[110px] rounded-xl" />
+        </div>
+      </div>
+    </div>
+  );
+}

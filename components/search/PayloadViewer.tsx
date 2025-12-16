@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CopyButton } from "@/components/shared/CopyButton";
 
 interface PayloadViewerProps {
   message: SearchMessageRow | null;
@@ -61,12 +62,7 @@ function tryPrettyJson(jsonString: string) {
   }
 }
 
-async function copyToClipboard(text: string) {
-  await navigator.clipboard.writeText(text);
-}
-
 type ViewerTab = "pretty" | "raw" | "headers";
-type CopiedField = "messageId" | "pretty" | "raw" | "headers";
 
 export function PayloadViewer({
   message,
@@ -75,7 +71,6 @@ export function PayloadViewer({
 }: PayloadViewerProps) {
   const [tab, setTab] = useState<ViewerTab>("pretty");
   const panelScrollRef = useRef<HTMLDivElement>(null);
-  const [copiedField, setCopiedField] = useState<CopiedField | null>(null);
 
   // deps muszą być bezpieczne, bo message może być null
   const messageId = message?.messageId ?? "";
@@ -112,16 +107,6 @@ export function PayloadViewer({
   const isSchemaDecoded = payloadFormat === "AVRO" || payloadFormat === "PROTO";
   const schemaDecodeFailed = isSchemaDecoded && !payloadPretty;
 
-  const handleCopyWithFeedback = async (field: CopiedField, text: string) => {
-    try {
-      await copyToClipboard(text);
-      setCopiedField(field);
-      window.setTimeout(() => setCopiedField(null), 1200);
-    } catch {
-      // optional: toast
-    }
-  };
-
   // ✅ dopiero tutaj warunkowy return
   if (!message) return null;
 
@@ -152,26 +137,12 @@ export function PayloadViewer({
             <div className="flex flex-wrap items-center gap-2">
               <SheetTitle className="text-xl font-mono text-foreground flex items-center gap-2 break-all">
                 {messageId}
-                <Button
-                  variant="ghost"
-                  size="icon"
+                <CopyButton
+                  text={messageId}
+                  label="Message ID"
                   className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                  onClick={() => handleCopyWithFeedback("messageId", messageId)}
-                  title="Copy message ID"
-                >
-                  {copiedField === "messageId" ? (
-                    <Check size={14} />
-                  ) : (
-                    <Copy size={14} />
-                  )}
-                </Button>
+                />
               </SheetTitle>
-
-              {copiedField === "messageId" && (
-                <span className="text-xs text-muted-foreground font-medium">
-                  Copied
-                </span>
-              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2 mt-2">
@@ -271,30 +242,16 @@ export function PayloadViewer({
                   ref={panelScrollRef}
                   className="relative rounded-lg border border-border bg-muted/30 p-4 flex-1 min-h-0 overflow-auto custom-scrollbar"
                 >
-                  <Button
-                    variant="ghost"
-                    size="icon"
+                  <CopyButton
+                    text={prettyText}
+                    label="Pretty payload"
                     className="absolute top-2 right-2 h-6 w-6 text-muted-foreground hover:text-foreground z-10 bg-background/50 backdrop-blur-sm"
-                    onClick={() => handleCopyWithFeedback("pretty", prettyText)}
-                    title="Copy pretty payload"
-                  >
-                    {copiedField === "pretty" ? (
-                      <Check size={12} />
-                    ) : (
-                      <Copy size={12} />
-                    )}
-                  </Button>
+                  />
 
                   <pre className="text-xs font-mono text-green-500 whitespace-pre-wrap leading-relaxed">
                     {prettyText}
                   </pre>
                 </div>
-
-                {copiedField === "pretty" && (
-                  <div className="text-xs text-muted-foreground font-medium">
-                    Copied
-                  </div>
-                )}
               </div>
             </TabsContent>
 
@@ -307,28 +264,14 @@ export function PayloadViewer({
                 ref={panelScrollRef}
                 className="relative rounded-lg border border-border bg-muted/30 p-4 h-full overflow-auto break-all font-mono text-xs text-muted-foreground custom-scrollbar"
               >
-                <Button
-                  variant="ghost"
-                  size="icon"
+                <CopyButton
+                  text={payloadBase64}
+                  label="Base64 payload"
                   className="absolute top-2 right-2 h-6 w-6 text-muted-foreground hover:text-foreground z-10 bg-background/50 backdrop-blur-sm"
-                  onClick={() => handleCopyWithFeedback("raw", payloadBase64)}
-                  title="Copy base64 payload"
-                >
-                  {copiedField === "raw" ? (
-                    <Check size={12} />
-                  ) : (
-                    <Copy size={12} />
-                  )}
-                </Button>
+                />
 
                 {payloadBase64}
               </div>
-
-              {copiedField === "raw" && (
-                <div className="mt-2 text-xs text-muted-foreground font-medium">
-                  Copied
-                </div>
-              )}
             </TabsContent>
 
             {/* HEADERS */}
@@ -344,25 +287,13 @@ export function PayloadViewer({
                   <div className="text-xs text-muted-foreground font-medium">
                     Headers
                   </div>
-                  <Button
-                    variant="ghost"
+                  <CopyButton
+                    text={JSON.stringify(headersObj, null, 2)}
+                    label="Headers"
                     size="sm"
+                    variant="ghost"
                     className="h-7 gap-2 text-muted-foreground hover:text-foreground"
-                    onClick={() =>
-                      handleCopyWithFeedback(
-                        "headers",
-                        JSON.stringify(headersObj, null, 2)
-                      )
-                    }
-                    title="Copy headers JSON"
-                  >
-                    {copiedField === "headers" ? (
-                      <Check size={12} />
-                    ) : (
-                      <Copy size={12} />
-                    )}{" "}
-                    Copy
-                  </Button>
+                  />
                 </div>
 
                 <table className="w-full text-sm">
@@ -389,12 +320,6 @@ export function PayloadViewer({
                   </tbody>
                 </table>
               </div>
-
-              {copiedField === "headers" && (
-                <div className="mt-2 text-xs text-muted-foreground font-medium">
-                  Copied
-                </div>
-              )}
             </TabsContent>
           </Tabs>
         </div>
