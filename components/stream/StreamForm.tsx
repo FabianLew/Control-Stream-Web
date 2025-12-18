@@ -5,8 +5,10 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import {
+  editStreamSchema,
   createStreamSchema,
   CreateStreamFormValues,
+  StreamFormValues,
 } from "@/components/lib/schemas";
 
 import type {
@@ -68,18 +70,9 @@ type StreamFormMode = "create" | "edit";
 
 type Props = {
   mode: StreamFormMode;
-
-  // edit: możesz podać stream (żeby np. pokazać ID, badge itd.)
   stream?: UnifiedStreamDto | null;
-
-  // edit: defaulty formularza
   initialValues?: Partial<CreateStreamFormValues>;
-
-  // create: jeśli true, po sukcesie router push(/streams)
   navigateAfterSubmit?: boolean;
-
-  // create: onSubmit przyjmie CreateStreamCommand
-  // edit: onSubmit przyjmie EditStreamCommand
   onSubmit: (payload: CreateStreamCommand | EditStreamCommand) => Promise<void>;
 };
 
@@ -137,8 +130,13 @@ export function StreamForm({
   const [rabbitShadow, setRabbitShadow] = useState(false);
   const [displayNameTouched, setDisplayNameTouched] = useState(false);
 
-  const form = useForm<CreateStreamFormValues>({
-    resolver: zodResolver(createStreamSchema),
+  const schema = useMemo(
+    () => (mode === "edit" ? editStreamSchema : createStreamSchema),
+    [mode]
+  );
+
+  const form = useForm<StreamFormValues>({
+    resolver: zodResolver(schema),
     defaultValues: {
       name: "",
       type: "KAFKA",
@@ -175,6 +173,7 @@ export function StreamForm({
 
   // --- spójne defaulty zależne od typu (działa i w create i w edit)
   useEffect(() => {
+    if (mode === "edit") return;
     const currentVendor = form.getValues("vendorConfig") as
       | StreamVendorConfigDto
       | undefined;
@@ -319,17 +318,13 @@ export function StreamForm({
     };
   };
 
-  const submit = async (data: CreateStreamFormValues) => {
+  const submit = async (data: StreamFormValues) => {
     setIsSubmitting(true);
     setError(null);
 
     try {
-      const payload = buildPayload(data);
+      const payload = buildPayload(data as CreateStreamFormValues);
       await onSubmit(payload);
-
-      if (payload.decoding?.schemaRegistry) {
-        delete (payload.decoding.schemaRegistry as any).enabled;
-      }
 
       if (navigateAfterSubmit) {
         router.push("/streams");
@@ -347,7 +342,7 @@ export function StreamForm({
 
   return (
     <form
-      onSubmit={form.handleSubmit(onSubmit, (errors) =>
+      onSubmit={form.handleSubmit(submit, (errors) =>
         handleInvalidSubmit(errors, {
           title: mode === "edit" ? "Stream not updated" : "Stream not created",
           description: "Please correct the highlighted fields and try again.",

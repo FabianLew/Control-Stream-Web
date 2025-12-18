@@ -99,22 +99,11 @@ const postgresVendorSchema = z.object({
   timeColumn: z.string().optional(),
 });
 
-export const createStreamSchema = z.object({
-  name: z.string().min(2),
-  type: z.enum(["KAFKA", "RABBIT", "POSTGRES"]),
-  connectionId: z.string().uuid(),
-  technicalName: z.string().min(2),
-  correlationKeyType: z.enum(["HEADER", "COLUMN"]),
-  correlationKeyName: z.string().min(1),
-  vendorConfig: z.union([
-    kafkaVendorSchema,
-    rabbitVendorSchema,
-    postgresVendorSchema,
-  ]),
-  decoding: decodingSchema,
-});
-
-export type CreateStreamFormValues = z.infer<typeof createStreamSchema>;
+const streamVendorConfigSchema = z.union([
+  kafkaVendorSchema,
+  rabbitVendorSchema,
+  postgresVendorSchema,
+]);
 
 export const schemaSourceSchema = z.enum(["SCHEMA_REGISTRY", "FILES", "NONE"]);
 export const payloadFormatHintSchema = z.enum([
@@ -230,3 +219,31 @@ export const payloadDecodingConfigSchema = z
 export type PayloadDecodingFormValues = z.infer<
   typeof payloadDecodingConfigSchema
 >;
+const streamBaseSchema = z.object({
+  name: z.string().min(2),
+  type: z.enum(["KAFKA", "RABBIT", "POSTGRES"]),
+  connectionId: z.string().uuid(),
+  technicalName: z.string().min(2),
+  correlationKeyType: z.enum(["HEADER", "COLUMN"]),
+  correlationKeyName: z.string().min(1),
+  vendorConfig: streamVendorConfigSchema,
+  decoding: decodingSchema,
+});
+
+export const createStreamSchema = streamBaseSchema;
+
+export const editStreamSchema = streamBaseSchema
+  .extend({
+    // tutaj ewentualnie możesz poluzować minimalnie rzeczy, ale ja bym NIE poluzował na start
+    // np. name: z.string().min(1) -> ale to wtedy rozwali spójność jeśli create jest min(2)
+  })
+  .superRefine((val, ctx) => {
+    // jeśli chcesz – dodatkowa logika dla edit (ale raczej niepotrzebna)
+    // ważne: correlationKeyName jest już min(1), więc nie trzeba tego walidować drugi raz
+  });
+
+export const streamFormSchema = z.union([createStreamSchema, editStreamSchema]);
+
+export type CreateStreamFormValues = z.input<typeof createStreamSchema>;
+export type EditStreamFormValues = z.input<typeof editStreamSchema>;
+export type StreamFormValues = z.input<typeof streamFormSchema>;

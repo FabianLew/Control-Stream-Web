@@ -34,7 +34,7 @@ export default function RootLayout({
                 ["--topnav-height" as any]: "64px",
               }}
             >
-              <TopNav />
+              {/* <TopNav /> */}
 
               {/* scroll container */}
               <main id="app-scroll" className="flex-1 overflow-auto relative">

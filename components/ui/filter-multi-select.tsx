@@ -14,13 +14,20 @@ export interface FilterOption {
   label: string;
 }
 
+type FooterApi = {
+  close: () => void;
+};
+
+type FooterSlot = React.ReactNode | ((api: FooterApi) => React.ReactNode);
+
 interface FilterMultiSelectProps {
-  title: string; // np. "Streams" lub "Connections"
-  options: FilterOption[]; // lista opcji
-  selected: string[]; // tablica wybranych ID
+  title: string;
+  options: FilterOption[];
+  selected: string[];
   onChange: (ids: string[]) => void;
   isLoading?: boolean;
   placeholder?: string;
+  footer?: FooterSlot;
 }
 
 export function FilterMultiSelect({
@@ -30,10 +37,10 @@ export function FilterMultiSelect({
   onChange,
   isLoading = false,
   placeholder = "Select...",
+  footer,
 }: FilterMultiSelectProps) {
   const [open, setOpen] = React.useState(false);
 
-  // Logika etykiety (Truncate / Licznik)
   const label = React.useMemo(() => {
     if (isLoading) return "Loading...";
     if (selected.length === 0) return `All ${title.toLowerCase()}`;
@@ -43,7 +50,6 @@ export function FilterMultiSelect({
     return `${selected.length} ${title.toLowerCase()}`;
   }, [selected, options, title, isLoading]);
 
-  // Handlery
   const toggleOption = (id: string) => {
     if (selected.includes(id)) {
       onChange(selected.filter((item) => item !== id));
@@ -54,6 +60,21 @@ export function FilterMultiSelect({
 
   const clearSelection = () => onChange([]);
 
+  const triggerText = React.useMemo(() => {
+    if (isLoading) return "Loading...";
+    if (selected.length === 0)
+      return placeholder || `All ${title.toLowerCase()}`;
+    return label;
+  }, [isLoading, selected.length, placeholder, title, label]);
+
+  const footerNode = React.useMemo(() => {
+    if (!footer) return null;
+    if (typeof footer === "function") {
+      return footer({ close: () => setOpen(false) });
+    }
+    return footer;
+  }, [footer]);
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -63,72 +84,76 @@ export function FilterMultiSelect({
           size="sm"
           className="h-9 min-w-[190px] bg-background text-xs font-normal justify-between border-border"
         >
-          <span className="truncate max-w-[160px]">{label}</span>
+          <span className="truncate max-w-[160px]">{triggerText}</span>
           <ChevronDown size={12} className="ml-2 shrink-0 opacity-60" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        className="w-64 p-2 space-y-2"
-        align="start"
-        sideOffset={4}
-      >
-        {/* Header z Clear */}
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-            {title}
-          </span>
-          {selected.length > 0 && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-[11px] hover:bg-destructive/10 hover:text-destructive"
-              onClick={clearSelection}
-            >
-              Clear
-            </Button>
-          )}
-        </div>
 
-        {/* Opcja "All" */}
-        <div className="flex items-center gap-2 py-1 px-1 hover:bg-muted/50 rounded-sm">
-          <Checkbox
-            id={`all-${title}`}
-            checked={selected.length === 0}
-            onCheckedChange={() => clearSelection()}
-          />
-          <label
-            htmlFor={`all-${title}`}
-            className="text-xs leading-none cursor-pointer flex-1 py-1"
-          >
-            All {title.toLowerCase()}
-          </label>
-        </div>
-
-        {/* Lista opcji */}
-        <ScrollArea className="h-[200px] -mx-1 pr-2">
-          <div className="space-y-1">
-            {options.map((option) => (
-              <div
-                key={option.id}
-                className="flex items-center gap-2 py-1 px-1 hover:bg-muted/50 rounded-sm"
+      <PopoverContent className="w-64 p-2" align="start" sideOffset={4}>
+        <div className="space-y-2">
+          {/* Header z Clear */}
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              {title}
+            </span>
+            {selected.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px] hover:bg-destructive/10 hover:text-destructive"
+                onClick={clearSelection}
               >
-                <Checkbox
-                  id={`opt-${option.id}`}
-                  checked={selected.includes(option.id)}
-                  onCheckedChange={() => toggleOption(option.id)}
-                />
-                <label
-                  htmlFor={`opt-${option.id}`}
-                  className="text-xs leading-none cursor-pointer flex-1 py-1 truncate"
-                  title={option.label}
-                >
-                  {option.label}
-                </label>
-              </div>
-            ))}
+                Clear
+              </Button>
+            )}
           </div>
-        </ScrollArea>
+
+          {/* Opcja "All" */}
+          <div className="flex items-center gap-2 py-1 px-1 hover:bg-muted/50 rounded-sm">
+            <Checkbox
+              id={`all-${title}`}
+              checked={selected.length === 0}
+              onCheckedChange={() => clearSelection()}
+            />
+            <label
+              htmlFor={`all-${title}`}
+              className="text-xs leading-none cursor-pointer flex-1 py-1"
+            >
+              All {title.toLowerCase()}
+            </label>
+          </div>
+
+          {/* Lista opcji */}
+          <ScrollArea className="h-[200px] -mx-1 pr-2">
+            <div className="space-y-1 px-1">
+              {options.map((option) => (
+                <div
+                  key={option.id}
+                  className="flex items-center gap-2 py-1 px-1 hover:bg-muted/50 rounded-sm"
+                >
+                  <Checkbox
+                    id={`opt-${option.id}`}
+                    checked={selected.includes(option.id)}
+                    onCheckedChange={() => toggleOption(option.id)}
+                  />
+                  <label
+                    htmlFor={`opt-${option.id}`}
+                    className="text-xs leading-none cursor-pointer flex-1 py-1 truncate"
+                    title={option.label}
+                  >
+                    {option.label}
+                  </label>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+
+          {/* Footer slot */}
+          {footerNode ? (
+            <div className="pt-2 border-t border-border/60">{footerNode}</div>
+          ) : null}
+        </div>
       </PopoverContent>
     </Popover>
   );

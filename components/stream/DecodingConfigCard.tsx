@@ -11,6 +11,7 @@ import {
   schemaSourceSchema,
   payloadFormatHintSchema,
   schemaRegistryAuthTypeSchema,
+  StreamFormValues,
 } from "@/components/lib/schemas";
 
 import type {
@@ -57,7 +58,7 @@ import {
 import { toast } from "sonner";
 
 type Props = {
-  form: UseFormReturn<CreateStreamFormValues>;
+  form: UseFormReturn<StreamFormValues>;
 };
 
 function ensureSchemaRegistryDefaults(

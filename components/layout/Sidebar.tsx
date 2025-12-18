@@ -1,10 +1,11 @@
 "use client";
 
-import { Search, Network, Activity, Package } from "lucide-react";
+import { Search, Network, Activity, Package, Cable } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
+  { name: "Live", href: "/live", icon: Cable },
   { name: "Search", href: "/search", icon: Search },
   { name: "Connections", href: "/connections", icon: Network },
   { name: "Streams", href: "/streams", icon: Activity },
