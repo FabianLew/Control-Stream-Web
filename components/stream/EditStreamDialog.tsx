@@ -1,4 +1,3 @@
-// /components/stream/EditStreamDialog.tsx
 "use client";
 
 import type { UnifiedStreamDto, EditStreamCommand } from "@/types/stream";
@@ -13,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
 import { StreamForm } from "@/components/stream/StreamForm";
+import { handleValidSubmit } from "@/components/lib/formError";
 
 type Props = {
   stream: UnifiedStreamDto | null;
@@ -31,7 +31,17 @@ export function EditStreamDialog({
 
   const submit = async (payload: EditStreamCommand) => {
     await onSave(stream.id, payload);
+
+    // 1) close dialog immediately
     onOpenChange(false);
+
+    // 2) toast AFTER close (next tick)
+    requestAnimationFrame(() => {
+      handleValidSubmit({
+        title: "Stream Updated Successfully",
+        description: "Your changes have been saved.",
+      });
+    });
   };
 
   return (

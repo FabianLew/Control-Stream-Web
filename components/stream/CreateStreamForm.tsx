@@ -1,9 +1,9 @@
-// /components/stream/CreateStreamForm.tsx
 "use client";
 
 import React from "react";
 import { StreamForm } from "@/components/stream/StreamForm";
 import type { CreateStreamCommand } from "@/types/stream";
+import { handleValidSubmit } from "@/components/lib/formError";
 
 export function CreateStreamForm() {
   const onSubmit = async (payload: CreateStreamCommand) => {
@@ -16,6 +16,11 @@ export function CreateStreamForm() {
     if (!res.ok) {
       throw new Error("Failed to create stream");
     }
+
+    handleValidSubmit({
+      title: "Stream Created Successfully",
+      description: "Your stream has been created and is ready to use.",
+    });
   };
 
   return (

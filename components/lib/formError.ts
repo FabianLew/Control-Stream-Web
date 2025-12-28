@@ -3,8 +3,6 @@ import { toast } from "sonner";
 
 function firstErrorPath(errors: any, prefix: string[] = []): string | null {
   if (!errors || typeof errors !== "object") return null;
-
-  // RHF trzyma message w errors[field].message
   if (typeof errors.message === "string") return prefix.join(".");
 
   for (const key of Object.keys(errors)) {
@@ -28,8 +26,6 @@ export function handleInvalidSubmit<T extends FieldValues>(
   const path = firstErrorPath(errors);
   if (!path) return;
 
-  // RHF używa name jako "a.b.c"
-  // my próbujemy znaleźć input/select/textarea z name="a.b.c"
   requestAnimationFrame(() => {
     const el = document.querySelector(
       `[name="${CSS.escape(path)}"]`
@@ -37,8 +33,16 @@ export function handleInvalidSubmit<T extends FieldValues>(
 
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
-      // focus jeśli możliwe
       (el as any).focus?.();
     }
+  });
+}
+
+export function handleValidSubmit(options?: {
+  title?: string;
+  description?: string;
+}) {
+  toast.success(options?.title ?? "Saved", {
+    description: options?.description ?? "Changes saved successfully.",
   });
 }

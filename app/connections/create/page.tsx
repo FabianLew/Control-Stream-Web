@@ -2,12 +2,31 @@
 
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { ConnectionForm } from "@/components/connection/CreateConnectionForm";
+import { useRouter } from "next/navigation";
+
+import { ConnectionForm } from "@/components/connection/ConnectionForm";
+import type { CreateConnectionFormValues } from "@/components/lib/schemas";
 
 export default function CreateConnectionPage() {
+  const router = useRouter();
+
+  const submit = async (payload: CreateConnectionFormValues) => {
+    const res = await fetch("/api/connections", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to create connection");
+    }
+
+    router.push("/connections");
+    router.refresh();
+  };
+
   return (
     <div className="min-h-screen bg-background p-6 md:p-8 space-y-6 fade-in">
-      {/* Breadcrumb */}
       <Link
         href="/connections"
         className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors w-fit group"
@@ -28,7 +47,7 @@ export default function CreateConnectionPage() {
         </p>
       </div>
 
-      <ConnectionForm />
+      <ConnectionForm mode="create" onSubmit={submit} />
     </div>
   );
 }

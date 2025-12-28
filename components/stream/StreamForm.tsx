@@ -1,4 +1,3 @@
-// /components/stream/StreamForm.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -9,8 +8,6 @@ import {
   editStreamSchema,
   createStreamSchema,
   StreamFormValues,
-  schemaSourceSchema,
-  payloadFormatHintSchema,
 } from "@/components/lib/schemas";
 
 import type {
@@ -21,6 +18,7 @@ import type {
   StreamVendorConfigDto,
   SchemaSource,
   PayloadFormatHint,
+  SchemaRegistryAuthType,
 } from "@/types/stream";
 
 import { useRouter } from "next/navigation";
@@ -83,8 +81,8 @@ const DEFAULT_FORM_VALUES: StreamFormValues = {
   technicalName: "",
   correlationKeyType: "HEADER",
   correlationKeyName: "trace-id",
-  vendorConfig: { vendor: "KAFKA" } as any,
-  decoding: { schemaSource: "NONE", formatHint: "AUTO" } as any,
+  vendorConfig: { vendor: "KAFKA" },
+  decoding: { schemaSource: "NONE", formatHint: "AUTO" },
 };
 
 const VendorIcon = ({ type }: { type: StreamType }) => {
@@ -106,37 +104,47 @@ function titleFromTechnical(technicalName: string) {
     .join(" ");
 }
 
-function safeEnum<T extends string>(
-  schema: any,
-  value: unknown,
-  fallback: T
-): T {
-  const parsed = schema.safeParse(value);
-  return parsed.success ? (parsed.data as T) : fallback;
+function toOptionalString(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  const s = String(value).trim();
+  return s.length ? s : undefined;
 }
 
-/**
- * Normalizuje decoding do kształtu oczekiwanego przez Zod:
- * - zawsze poprawne enumy
- * - brak pustych stringów w obiektach
- * - NONE czyści sub-configi
- */
-function normalizeDecoding(input: any) {
-  const schemaSource = safeEnum<SchemaSource>(
-    schemaSourceSchema,
-    input?.schemaSource,
-    "NONE"
-  );
+function toOptionalNumber(value: unknown): number | undefined {
+  if (value == null) return undefined;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  const s = String(value).trim();
+  if (!s) return undefined;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : undefined;
+}
 
-  const formatHint = safeEnum<PayloadFormatHint>(
-    payloadFormatHintSchema,
-    input?.formatHint,
-    "AUTO"
-  );
+function normalizeCorrelationKeyType(
+  streamType: StreamType,
+  raw: unknown
+): "HEADER" | "COLUMN" {
+  if (raw === "HEADER" || raw === "COLUMN") return raw;
+  return streamType === "POSTGRES" ? "COLUMN" : "HEADER";
+}
+
+function normalizeCorrelationKeyName(
+  streamType: StreamType,
+  raw: unknown
+): string {
+  const value = toOptionalString(raw);
+  if (value) return value;
+  return streamType === "POSTGRES" ? "trace_id" : "trace-id";
+}
+
+function normalizeDecoding(input: any) {
+  const schemaSource = (input?.schemaSource ?? "NONE") as SchemaSource;
+  const formatHint = (input?.formatHint ?? "AUTO") as PayloadFormatHint;
 
   if (schemaSource === "NONE") {
     return {
-      schemaSource: "NONE",
+      schemaSource: "NONE" as const,
       formatHint,
       schemaRegistry: undefined,
       protoFiles: undefined,
@@ -145,19 +153,22 @@ function normalizeDecoding(input: any) {
   }
 
   if (schemaSource === "SCHEMA_REGISTRY") {
-    const sr = input?.schemaRegistry;
+    const sr = input?.schemaRegistry ?? undefined;
+    const authType = (sr?.authType ?? "NONE") as SchemaRegistryAuthType;
+
     return {
-      schemaSource: "SCHEMA_REGISTRY",
+      schemaSource: "SCHEMA_REGISTRY" as const,
       formatHint,
-      schemaRegistry:
-        sr && typeof sr === "object"
-          ? {
-              url: String(sr.url ?? ""),
-              authType: (sr.authType ?? "NONE") as any,
-              username: sr.username ?? "",
-              password: sr.password ?? "",
-            }
-          : { url: "", authType: "NONE" },
+      schemaRegistry: sr
+        ? {
+            url: String(sr.url ?? "").trim(),
+            authType,
+            username:
+              authType === "BASIC" ? toOptionalString(sr.username) : undefined,
+            password:
+              authType === "BASIC" ? toOptionalString(sr.password) : undefined,
+          }
+        : undefined,
       protoFiles: undefined,
       avroFiles: undefined,
     };
@@ -168,98 +179,144 @@ function normalizeDecoding(input: any) {
   const avro = input?.avroFiles;
 
   return {
-    schemaSource: "FILES",
+    schemaSource: "FILES" as const,
     formatHint,
     schemaRegistry: undefined,
-    protoFiles: proto && typeof proto === "object" ? proto : undefined,
-    avroFiles: avro && typeof avro === "object" ? avro : undefined,
+    protoFiles:
+      proto && typeof proto === "object"
+        ? {
+            bundleId: String(proto.bundleId ?? "").trim(),
+            fileGlob: toOptionalString(proto.fileGlob),
+            fixedMessageFullName: toOptionalString(proto.fixedMessageFullName),
+            typeHeaderName: toOptionalString(proto.typeHeaderName),
+            typeHeaderValuePrefix: toOptionalString(
+              proto.typeHeaderValuePrefix
+            ),
+          }
+        : undefined,
+    avroFiles:
+      avro && typeof avro === "object"
+        ? {
+            bundleId: String(avro.bundleId ?? "").trim(),
+            fileGlob: toOptionalString(avro.fileGlob),
+          }
+        : undefined,
   };
 }
 
-function vendorDefaultsFor(
+function ensureVendorConfigForType(
   type: StreamType,
   current?: StreamVendorConfigDto
 ): StreamVendorConfigDto {
   if (type === "KAFKA") {
-    return current?.vendor === "KAFKA" ? current : { vendor: "KAFKA" };
+    if (current?.vendor === "KAFKA") return current;
+    return { vendor: "KAFKA" };
   }
   if (type === "RABBIT") {
-    return current?.vendor === "RABBIT"
-      ? {
-          ...current,
-          shadowQueueEnabled: (current as any).shadowQueueEnabled ?? false,
-        }
-      : ({ vendor: "RABBIT", shadowQueueEnabled: false } as any);
+    if (current?.vendor === "RABBIT") {
+      return {
+        ...current,
+        shadowQueueEnabled: Boolean((current as any).shadowQueueEnabled),
+        shadowQueueName:
+          (current as any).shadowQueueName == null
+            ? undefined
+            : (current as any).shadowQueueName,
+      } as any;
+    }
+    return { vendor: "RABBIT", shadowQueueEnabled: false } as any;
   }
-  return current?.vendor === "POSTGRES" ? current : { vendor: "POSTGRES" };
+  // POSTGRES
+  if (current?.vendor === "POSTGRES") return current;
+  return { vendor: "POSTGRES", schema: "public" };
 }
 
-function toOptionalString(value: unknown): string | undefined {
-  if (value == null) return undefined; // null lub undefined
-  const s = String(value).trim();
-  return s.length ? s : undefined;
-}
-
-/**
- * Kluczowe: Zod ma `optional()` a nie `nullable()`,
- * więc musimy czyścić null -> undefined + pusty string -> undefined.
- */
 function normalizeVendorConfig(
   type: StreamType,
   vendorConfig: StreamVendorConfigDto | undefined,
   technicalName: string,
-  correlationKeyName: string | undefined,
-  pgSchema: string,
-  rabbitShadowEnabled: boolean
+  correlationKeyName: string
 ): StreamVendorConfigDto {
-  if (type === "KAFKA") {
-    const current =
-      vendorConfig?.vendor === "KAFKA"
-        ? (vendorConfig as any)
-        : ({ vendor: "KAFKA" } as any);
+  const current = vendorConfig ?? ({} as any);
 
+  if (type === "KAFKA") {
+    const v = current.vendor === "KAFKA" ? current : { vendor: "KAFKA" };
     return {
       vendor: "KAFKA",
-      topic: toOptionalString(technicalName) ?? toOptionalString(current.topic),
-      consumerGroupId: toOptionalString(current.consumerGroupId),
-      correlationHeader: toOptionalString(current.correlationHeader),
+      topic: toOptionalString(v.topic) ?? toOptionalString(technicalName),
+      consumerGroupId: toOptionalString(v.consumerGroupId),
+      correlationHeader: toOptionalString(v.correlationHeader),
     };
   }
 
   if (type === "RABBIT") {
-    const current =
-      vendorConfig?.vendor === "RABBIT"
-        ? (vendorConfig as any)
+    const v =
+      current.vendor === "RABBIT"
+        ? current
         : ({ vendor: "RABBIT", shadowQueueEnabled: false } as any);
 
     return {
       vendor: "RABBIT",
-      queue: toOptionalString(technicalName) ?? toOptionalString(current.queue),
-      exchange: toOptionalString(current.exchange),
-      routingKey: toOptionalString(current.routingKey),
-      prefetchCount: current.prefetchCount ?? undefined,
-      shadowQueueEnabled: !!rabbitShadowEnabled,
+      queue: toOptionalString(v.queue) ?? toOptionalString(technicalName),
+      exchange: toOptionalString(v.exchange),
+      routingKey: toOptionalString(v.routingKey),
+      prefetchCount: toOptionalNumber(v.prefetchCount),
+      shadowQueueEnabled: Boolean(v.shadowQueueEnabled),
       shadowQueueName:
-        current.shadowQueueName == null ? undefined : current.shadowQueueName,
-      correlationHeader: toOptionalString(current.correlationHeader),
+        v.shadowQueueName == null
+          ? undefined
+          : toOptionalString(v.shadowQueueName),
+      correlationHeader: toOptionalString(v.correlationHeader),
     } as any;
   }
 
   // POSTGRES
-  const current =
-    vendorConfig?.vendor === "POSTGRES"
-      ? (vendorConfig as any)
-      : ({ vendor: "POSTGRES" } as any);
-
+  const v =
+    current.vendor === "POSTGRES" ? current : ({ vendor: "POSTGRES" } as any);
   return {
     vendor: "POSTGRES",
-    schema: toOptionalString(current.schema) ?? toOptionalString(pgSchema),
-    table: toOptionalString(technicalName) ?? toOptionalString(current.table),
+    schema: toOptionalString(v.schema) ?? "public",
+    table: toOptionalString(v.table) ?? toOptionalString(technicalName),
     correlationColumn:
-      toOptionalString(correlationKeyName) ??
-      toOptionalString(current.correlationColumn),
-    timeColumn: toOptionalString(current.timeColumn),
+      toOptionalString(v.correlationColumn) ?? correlationKeyName,
+    timeColumn: toOptionalString(v.timeColumn),
   };
+}
+
+function normalizeFormPayload(
+  data: StreamFormValues
+): CreateStreamCommand | EditStreamCommand {
+  const name = (data.name ?? "").trim();
+  const technical = (data.technicalName ?? "").trim();
+
+  const correlationKeyType = normalizeCorrelationKeyType(
+    data.type,
+    (data as any).correlationKeyType
+  );
+
+  const correlationKeyName = normalizeCorrelationKeyName(
+    data.type,
+    (data as any).correlationKeyName
+  );
+
+  const normalizedVendor = normalizeVendorConfig(
+    data.type,
+    data.vendorConfig as any,
+    technical,
+    correlationKeyName
+  );
+
+  const normalizedDecoding = normalizeDecoding(data.decoding);
+
+  return {
+    name,
+    type: data.type,
+    connectionId: data.connectionId,
+    technicalName: technical,
+    correlationKeyType,
+    correlationKeyName,
+    vendorConfig: normalizedVendor,
+    decoding: normalizedDecoding as any,
+  } as any;
 }
 
 export function StreamForm({
@@ -276,8 +333,6 @@ export function StreamForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [pgSchema, setPgSchema] = useState("public");
-  const [rabbitShadowEnabled, setRabbitShadowEnabled] = useState(false);
   const [displayNameTouched, setDisplayNameTouched] = useState(false);
 
   const schema = useMemo(
@@ -301,40 +356,44 @@ export function StreamForm({
   }, []);
 
   /**
-   * ✅ Single init/reset per mode + stream.id
-   * Zero "walczących" useEffectów, zero resetów w pętli.
+   * Single init/reset per mode + stream.id (no fighting effects).
    */
-  const lastKeyRef = useRef<string>("");
+  const lastInitKeyRef = useRef<string>("");
 
   useEffect(() => {
     const key = mode === "edit" ? `edit:${stream?.id ?? "none"}` : "create";
-    if (lastKeyRef.current === key) return;
+    if (lastInitKeyRef.current === key) return;
 
     if (mode === "edit") {
       if (!stream) return;
 
-      const normalized: StreamFormValues = {
+      const initial: StreamFormValues = {
         ...DEFAULT_FORM_VALUES,
         name: stream.name ?? "",
         type: stream.type,
         connectionId: stream.connectionId ?? "",
         technicalName: stream.technicalName ?? "",
-        correlationKeyType: stream.correlationKeyType,
-        correlationKeyName: stream.correlationKeyName ?? "",
-        vendorConfig: (stream.vendorConfig ??
-          vendorDefaultsFor(stream.type)) as any,
+        correlationKeyType: normalizeCorrelationKeyType(
+          stream.type,
+          (stream as any).correlationKeyType
+        ),
+        correlationKeyName: normalizeCorrelationKeyName(
+          stream.type,
+          (stream as any).correlationKeyName
+        ),
+        vendorConfig: ensureVendorConfigForType(
+          stream.type,
+          stream.vendorConfig
+        ) as any,
         decoding: normalizeDecoding(stream.decoding) as any,
       };
 
+      const normalized = normalizeFormPayload(initial as any) as any;
+
       form.reset(normalized as any, { keepDirty: false, keepTouched: false });
 
-      const vendor = normalized.vendorConfig as any;
-      if (vendor?.vendor === "POSTGRES") setPgSchema(vendor.schema ?? "public");
-      if (vendor?.vendor === "RABBIT")
-        setRabbitShadowEnabled(!!vendor.shadowQueueEnabled);
-
       setDisplayNameTouched(true);
-      lastKeyRef.current = key;
+      lastInitKeyRef.current = key;
       return;
     }
 
@@ -343,10 +402,8 @@ export function StreamForm({
       keepDirty: false,
       keepTouched: false,
     });
-    setPgSchema("public");
-    setRabbitShadowEnabled(false);
     setDisplayNameTouched(false);
-    lastKeyRef.current = key;
+    lastInitKeyRef.current = key;
   }, [mode, stream?.id, stream, form]);
 
   const selectedConnectionId = form.watch("connectionId");
@@ -361,84 +418,119 @@ export function StreamForm({
   }, [connections, selectedConnectionId]);
 
   /**
-   * ✅ Create: when user chooses connection -> set type + vendor defaults + correlation defaults.
-   * Uwaga: ustawiamy TYLKO to co zależy od connection/type.
-   * Nie ruszamy decoding (user może ustawić).
+   * Create: apply defaults once per selected connectionId.
    */
+  const lastAppliedConnectionIdRef = useRef<string>("");
+
   useEffect(() => {
     if (mode !== "create") return;
     if (!activeConnection) return;
+    if (lastAppliedConnectionIdRef.current === activeConnection.id) return;
 
-    // lock type to connection's type
+    lastAppliedConnectionIdRef.current = activeConnection.id;
+
     form.setValue("type", activeConnection.type, {
-      shouldDirty: false,
+      shouldDirty: true,
       shouldValidate: true,
     });
 
-    // vendor defaults by type (but keep existing fields if already correct vendor)
-    const currentVendor = form.getValues("vendorConfig") as any;
-    const nextVendor = vendorDefaultsFor(activeConnection.type, currentVendor);
-
     if (activeConnection.type === "POSTGRES") {
       form.setValue("correlationKeyType", "COLUMN", {
-        shouldDirty: false,
+        shouldDirty: true,
         shouldValidate: true,
       });
-      // only set if empty
-      if (!form.getValues("correlationKeyName")) {
+      if (!toOptionalString(form.getValues("correlationKeyName"))) {
         form.setValue("correlationKeyName", "trace_id", {
-          shouldDirty: false,
+          shouldDirty: true,
           shouldValidate: true,
         });
       }
       form.setValue(
         "vendorConfig",
-        { ...nextVendor, vendor: "POSTGRES", schema: pgSchema } as any,
-        { shouldDirty: false, shouldValidate: true }
+        { vendor: "POSTGRES", schema: "public" } as any,
+        { shouldDirty: true, shouldValidate: true }
       );
-      return;
-    }
-
-    // KAFKA/RABBIT
-    form.setValue("correlationKeyType", "HEADER", {
-      shouldDirty: false,
-      shouldValidate: true,
-    });
-    if (!form.getValues("correlationKeyName")) {
-      form.setValue("correlationKeyName", "trace-id", {
-        shouldDirty: false,
+    } else {
+      form.setValue("correlationKeyType", "HEADER", {
+        shouldDirty: true,
         shouldValidate: true,
       });
+      if (!toOptionalString(form.getValues("correlationKeyName"))) {
+        form.setValue("correlationKeyName", "trace-id", {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+      }
+      if (activeConnection.type === "RABBIT") {
+        form.setValue(
+          "vendorConfig",
+          { vendor: "RABBIT", shadowQueueEnabled: false } as any,
+          { shouldDirty: true, shouldValidate: true }
+        );
+      } else {
+        form.setValue("vendorConfig", { vendor: "KAFKA" } as any, {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+      }
     }
 
-    if (activeConnection.type === "RABBIT") {
-      form.setValue(
-        "vendorConfig",
-        {
-          ...nextVendor,
-          vendor: "RABBIT",
-          shadowQueueEnabled: rabbitShadowEnabled,
-        } as any,
-        { shouldDirty: false, shouldValidate: true }
-      );
-      return;
-    }
-
-    // KAFKA
-    form.setValue("vendorConfig", { ...nextVendor, vendor: "KAFKA" } as any, {
-      shouldDirty: false,
-      shouldValidate: true,
-    });
+    setDisplayNameTouched(false);
   }, [
     mode,
     activeConnection?.id,
     activeConnection?.type,
-    pgSchema,
-    rabbitShadowEnabled,
+    activeConnection,
     form,
   ]);
 
-  // create: auto-fill display name from technical name (only if user didn't touch display name)
+  /**
+   * Guardrail: POSTGRES must always be COLUMN.
+   * Prevents UI dead state if value ever becomes ""/null.
+   */
+  useEffect(() => {
+    if (watchedType !== "POSTGRES") return;
+
+    const current = form.getValues("correlationKeyType");
+    if (current === "COLUMN") return;
+
+    form.setValue("correlationKeyType", "COLUMN", {
+      shouldDirty: false,
+      shouldValidate: true,
+    });
+  }, [watchedType, form]);
+
+  /**
+   * Critical: keep decoding schema-valid when user turns it off (NONE).
+   */
+  const decodingSchemaSource = form.watch(
+    "decoding.schemaSource"
+  ) as SchemaSource;
+  const lastDecodingSchemaSourceRef = useRef<SchemaSource | null>(null);
+
+  useEffect(() => {
+    if (!decodingSchemaSource) return;
+    if (lastDecodingSchemaSourceRef.current === decodingSchemaSource) return;
+
+    lastDecodingSchemaSourceRef.current = decodingSchemaSource;
+
+    if (decodingSchemaSource === "NONE") {
+      form.setValue("decoding.schemaRegistry", undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      form.setValue("decoding.protoFiles", undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      form.setValue("decoding.avroFiles", undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+  }, [decodingSchemaSource, form]);
+
+  // create: auto-fill display name from technical name only if user didn't touch display name
   useEffect(() => {
     if (mode !== "create") return;
     if (displayNameTouched) return;
@@ -453,7 +545,7 @@ export function StreamForm({
     if (!suggested) return;
 
     form.setValue("name", suggested, {
-      shouldDirty: false,
+      shouldDirty: true,
       shouldTouch: false,
       shouldValidate: true,
     });
@@ -461,42 +553,32 @@ export function StreamForm({
 
   const connectionNameForEdit = useMemo(() => {
     if (mode !== "edit") return "";
-    if (!stream) return "";
-    return (stream as any).connectionName ?? "";
-  }, [mode, stream]);
-
-  const buildPayload = (
-    data: StreamFormValues
-  ): CreateStreamCommand | EditStreamCommand => {
-    const technical = (data.technicalName ?? "").trim();
-
-    const vendorConfig = normalizeVendorConfig(
-      data.type,
-      data.vendorConfig as any,
-      technical,
-      data.correlationKeyName ?? undefined,
-      pgSchema,
-      rabbitShadowEnabled
-    );
-
-    return {
-      name: (data.name ?? "").trim(),
-      type: data.type,
-      connectionId: data.connectionId,
-      technicalName: technical,
-      correlationKeyType: data.correlationKeyType,
-      correlationKeyName: (data.correlationKeyName ?? "").trim(),
-      vendorConfig,
-      decoding: normalizeDecoding(data.decoding) as any,
-    } as any;
-  };
+    return stream?.connectionName ?? "";
+  }, [mode, stream?.connectionName]);
 
   const submit = async (data: StreamFormValues) => {
     setIsSubmitting(true);
     setError(null);
 
     try {
-      await onSubmit(buildPayload(data));
+      // normalize once, then parse with schema -> guarantee correctness
+      const normalizedPayload = normalizeFormPayload(data);
+
+      const parsed = schema.safeParse(normalizedPayload);
+      if (!parsed.success) {
+        // Push normalized into form and trigger errors
+        form.reset(normalizedPayload as any, {
+          keepDirty: true,
+          keepTouched: true,
+          keepErrors: false,
+        });
+        await form.trigger();
+        setIsSubmitting(false);
+        return;
+      }
+
+      await onSubmit(parsed.data as any);
+
       if (navigateAfterSubmit) {
         router.push("/streams");
         router.refresh();
@@ -510,16 +592,21 @@ export function StreamForm({
 
   const values = form.watch();
   const previewJson = useMemo(
-    () => JSON.stringify(buildPayload(values), null, 2),
+    () => JSON.stringify(normalizeFormPayload(values), null, 2),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [values, pgSchema, rabbitShadowEnabled]
+    [values]
   );
 
   const showKafkaFields = watchedType === "KAFKA";
   const showRabbitFields = watchedType === "RABBIT";
   const showPostgresFields = watchedType === "POSTGRES";
 
-  const currentVendorConfig = form.watch("vendorConfig") as any;
+  const currentVendor = (form.watch("vendorConfig") as any) ?? {};
+
+  const correlationKeyTypeValue = normalizeCorrelationKeyType(
+    watchedType,
+    form.watch("correlationKeyType")
+  );
 
   return (
     <form
@@ -569,14 +656,12 @@ export function StreamForm({
                   />
                 ) : (
                   <Select
-                    value={selectedConnectionId || undefined}
+                    value={selectedConnectionId ?? ""}
                     onValueChange={(v) => {
                       form.setValue("connectionId", v, {
                         shouldDirty: true,
                         shouldValidate: true,
                       });
-                      // allow re-autofill display name for new connection context
-                      setDisplayNameTouched(false);
                     }}
                     disabled={isLoadingConn}
                   >
@@ -662,7 +747,7 @@ export function StreamForm({
             </CardHeader>
 
             <CardContent className="space-y-6">
-              {/* TYPE (locked - comes from connection/stream) */}
+              {/* TYPE (locked) */}
               <div className="space-y-2">
                 <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                   Type
@@ -734,14 +819,14 @@ export function StreamForm({
                       Location
                     </Label>
                     <Select
-                      value={form.watch("correlationKeyType") as any}
+                      value={correlationKeyTypeValue}
                       onValueChange={(v) => {
                         form.setValue("correlationKeyType", v as any, {
                           shouldDirty: true,
                           shouldValidate: true,
                         });
                       }}
-                      disabled={watchedType === "POSTGRES"} // POSTGRES wants COLUMN
+                      disabled={watchedType === "POSTGRES"}
                     >
                       <SelectTrigger className="bg-background">
                         <SelectValue />
@@ -779,7 +864,7 @@ export function StreamForm({
                 </div>
               </div>
 
-              {/* vendor-specific small extras */}
+              {/* Vendor-specific */}
               {showRabbitFields && (
                 <>
                   <Separator />
@@ -797,24 +882,52 @@ export function StreamForm({
                         </div>
                       </div>
                       <Switch
-                        checked={rabbitShadowEnabled}
+                        checked={Boolean(currentVendor.shadowQueueEnabled)}
                         onCheckedChange={(checked) => {
-                          setRabbitShadowEnabled(checked);
-                          const current = (form.getValues(
-                            "vendorConfig"
-                          ) as any) ?? {
-                            vendor: "RABBIT",
-                          };
+                          const base = ensureVendorConfigForType(
+                            "RABBIT",
+                            form.getValues("vendorConfig") as any
+                          ) as any;
+
                           form.setValue(
                             "vendorConfig",
                             {
-                              ...current,
+                              ...base,
                               vendor: "RABBIT",
                               shadowQueueEnabled: checked,
                             } as any,
                             { shouldDirty: true, shouldValidate: true }
                           );
                         }}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">
+                        Shadow queue name (optional)
+                      </Label>
+                      <Input
+                        value={
+                          toOptionalString(currentVendor.shadowQueueName) ?? ""
+                        }
+                        onChange={(e) => {
+                          const base = ensureVendorConfigForType(
+                            "RABBIT",
+                            form.getValues("vendorConfig") as any
+                          ) as any;
+
+                          form.setValue(
+                            "vendorConfig",
+                            {
+                              ...base,
+                              vendor: "RABBIT",
+                              shadowQueueName: toOptionalString(e.target.value),
+                            } as any,
+                            { shouldDirty: true, shouldValidate: true }
+                          );
+                        }}
+                        className="bg-background font-mono text-sm"
+                        placeholder="orders.shadow.queue"
                       />
                     </div>
                   </div>
@@ -834,22 +947,19 @@ export function StreamForm({
                         Schema
                       </Label>
                       <Input
-                        value={pgSchema}
+                        value={toOptionalString(currentVendor.schema) ?? ""}
                         onChange={(e) => {
-                          const next = e.target.value;
-                          setPgSchema(next);
-                          // keep vendorConfig.schema in sync (so preview/payload matches)
-                          const current = (form.getValues(
-                            "vendorConfig"
-                          ) as any) ?? {
-                            vendor: "POSTGRES",
-                          };
+                          const base = ensureVendorConfigForType(
+                            "POSTGRES",
+                            form.getValues("vendorConfig") as any
+                          ) as any;
+
                           form.setValue(
                             "vendorConfig",
                             {
-                              ...current,
+                              ...base,
                               vendor: "POSTGRES",
-                              schema: next,
+                              schema: e.target.value,
                             } as any,
                             { shouldDirty: true, shouldValidate: true }
                           );
@@ -875,19 +985,21 @@ export function StreamForm({
                         Consumer Group (optional)
                       </Label>
                       <Input
-                        value={currentVendorConfig?.consumerGroupId ?? ""}
+                        value={
+                          toOptionalString(currentVendor.consumerGroupId) ?? ""
+                        }
                         onChange={(e) => {
-                          const current = (form.getValues(
-                            "vendorConfig"
-                          ) as any) ?? {
-                            vendor: "KAFKA",
-                          };
+                          const base = ensureVendorConfigForType(
+                            "KAFKA",
+                            form.getValues("vendorConfig") as any
+                          ) as any;
+
                           form.setValue(
                             "vendorConfig",
                             {
-                              ...current,
+                              ...base,
                               vendor: "KAFKA",
-                              consumerGroupId: e.target.value || undefined,
+                              consumerGroupId: toOptionalString(e.target.value),
                             } as any,
                             { shouldDirty: true, shouldValidate: true }
                           );
@@ -902,19 +1014,24 @@ export function StreamForm({
                         Correlation Header (optional)
                       </Label>
                       <Input
-                        value={currentVendorConfig?.correlationHeader ?? ""}
+                        value={
+                          toOptionalString(currentVendor.correlationHeader) ??
+                          ""
+                        }
                         onChange={(e) => {
-                          const current = (form.getValues(
-                            "vendorConfig"
-                          ) as any) ?? {
-                            vendor: "KAFKA",
-                          };
+                          const base = ensureVendorConfigForType(
+                            "KAFKA",
+                            form.getValues("vendorConfig") as any
+                          ) as any;
+
                           form.setValue(
                             "vendorConfig",
                             {
-                              ...current,
+                              ...base,
                               vendor: "KAFKA",
-                              correlationHeader: e.target.value || undefined,
+                              correlationHeader: toOptionalString(
+                                e.target.value
+                              ),
                             } as any,
                             { shouldDirty: true, shouldValidate: true }
                           );
