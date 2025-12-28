@@ -55,7 +55,12 @@ import {
   Save,
   Link as LinkIcon,
 } from "lucide-react";
-import { getVendorMeta, VENDOR_OPTIONS } from "@/components/lib/vendors";
+import {
+  getVendorMeta,
+  VENDOR_OPTIONS,
+  isVendor,
+  VENDOR_META,
+} from "@/components/lib/vendors";
 
 type ConnectionSummary = {
   id: string;
@@ -122,7 +127,7 @@ function normalizeCorrelationKeyType(
   raw: unknown
 ): "HEADER" | "COLUMN" {
   if (raw === "HEADER" || raw === "COLUMN") return raw;
-  return streamType === "POSTGRES" ? "COLUMN" : "HEADER";
+  return isVendor(streamType, VENDOR_META.POSTGRES) ? "COLUMN" : "HEADER";
 }
 
 function normalizeCorrelationKeyName(
@@ -131,7 +136,7 @@ function normalizeCorrelationKeyName(
 ): string {
   const value = toOptionalString(raw);
   if (value) return value;
-  return streamType === "POSTGRES" ? "trace_id" : "trace-id";
+  return isVendor(streamType, VENDOR_META.POSTGRES) ? "trace_id" : "trace-id";
 }
 
 function normalizeDecoding(input: any) {
@@ -204,12 +209,12 @@ function ensureVendorConfigForType(
   type: StreamType,
   current?: StreamVendorConfigDto
 ): StreamVendorConfigDto {
-  if (type === "KAFKA") {
-    if (current?.vendor === "KAFKA") return current;
+  if (isVendor(type, VENDOR_META.KAFKA)) {
+    if (current && isVendor(current.vendor, VENDOR_META.KAFKA)) return current;
     return { vendor: "KAFKA" };
   }
-  if (type === "RABBIT") {
-    if (current?.vendor === "RABBIT") {
+  if (isVendor(type, VENDOR_META.RABBIT)) {
+    if (current && isVendor(current.vendor, VENDOR_META.RABBIT)) {
       return {
         ...current,
         shadowQueueEnabled: Boolean((current as any).shadowQueueEnabled),
@@ -222,7 +227,7 @@ function ensureVendorConfigForType(
     return { vendor: "RABBIT", shadowQueueEnabled: false } as any;
   }
   // POSTGRES
-  if (current?.vendor === "POSTGRES") return current;
+  if (current && isVendor(current.vendor, VENDOR_META.POSTGRES)) return current;
   return { vendor: "POSTGRES", schema: "public" };
 }
 
@@ -234,8 +239,10 @@ function normalizeVendorConfig(
 ): StreamVendorConfigDto {
   const current = vendorConfig ?? ({} as any);
 
-  if (type === "KAFKA") {
-    const v = current.vendor === "KAFKA" ? current : { vendor: "KAFKA" };
+  if (isVendor(type, VENDOR_META.KAFKA)) {
+    const v = isVendor(current.vendor, VENDOR_META.KAFKA)
+      ? current
+      : { vendor: "KAFKA" };
     return {
       vendor: "KAFKA",
       topic: toOptionalString(v.topic) ?? toOptionalString(technicalName),
@@ -244,9 +251,9 @@ function normalizeVendorConfig(
     };
   }
 
-  if (type === "RABBIT") {
+  if (isVendor(type, VENDOR_META.RABBIT)) {
     const v =
-      current.vendor === "RABBIT"
+      isVendor(current.vendor, VENDOR_META.RABBIT)
         ? current
         : ({ vendor: "RABBIT", shadowQueueEnabled: false } as any);
 
@@ -267,7 +274,9 @@ function normalizeVendorConfig(
 
   // POSTGRES
   const v =
-    current.vendor === "POSTGRES" ? current : ({ vendor: "POSTGRES" } as any);
+    isVendor(current.vendor, VENDOR_META.POSTGRES)
+      ? current
+      : ({ vendor: "POSTGRES" } as any);
   return {
     vendor: "POSTGRES",
     schema: toOptionalString(v.schema) ?? "public",
@@ -430,7 +439,7 @@ export function StreamForm({
       shouldValidate: true,
     });
 
-    if (activeConnection.type === "POSTGRES") {
+    if (isVendor(activeConnection.type, VENDOR_META.POSTGRES)) {
       form.setValue("correlationKeyType", "COLUMN", {
         shouldDirty: true,
         shouldValidate: true,
@@ -457,7 +466,7 @@ export function StreamForm({
           shouldValidate: true,
         });
       }
-      if (activeConnection.type === "RABBIT") {
+      if (isVendor(activeConnection.type, VENDOR_META.RABBIT)) {
         form.setValue(
           "vendorConfig",
           { vendor: "RABBIT", shadowQueueEnabled: false } as any,
@@ -485,7 +494,7 @@ export function StreamForm({
    * Prevents UI dead state if value ever becomes ""/null.
    */
   useEffect(() => {
-    if (watchedType !== "POSTGRES") return;
+    if (!isVendor(watchedType, VENDOR_META.POSTGRES)) return;
 
     const current = form.getValues("correlationKeyType");
     if (current === "COLUMN") return;
@@ -593,9 +602,9 @@ export function StreamForm({
     [values]
   );
 
-  const showKafkaFields = watchedType === "KAFKA";
-  const showRabbitFields = watchedType === "RABBIT";
-  const showPostgresFields = watchedType === "POSTGRES";
+  const showKafkaFields = isVendor(watchedType, VENDOR_META.KAFKA);
+  const showRabbitFields = isVendor(watchedType, VENDOR_META.RABBIT);
+  const showPostgresFields = isVendor(watchedType, VENDOR_META.POSTGRES);
 
   const currentVendor = (form.watch("vendorConfig") as any) ?? {};
 
@@ -765,9 +774,9 @@ export function StreamForm({
               {/* TECHNICAL NAME */}
               <div className="space-y-2">
                 <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  {watchedType === "KAFKA"
+                  {isVendor(watchedType, VENDOR_META.KAFKA)
                     ? "Topic Name"
-                    : watchedType === "RABBIT"
+                    : isVendor(watchedType, VENDOR_META.RABBIT)
                     ? "Queue Name"
                     : "Table Name"}
                 </Label>
@@ -780,9 +789,9 @@ export function StreamForm({
                     })
                   }
                   placeholder={
-                    watchedType === "KAFKA"
+                    isVendor(watchedType, VENDOR_META.KAFKA)
                       ? "e.g. orders.v1"
-                      : watchedType === "RABBIT"
+                      : isVendor(watchedType, VENDOR_META.RABBIT)
                       ? "e.g. orders.queue"
                       : "e.g. orders"
                   }
@@ -824,7 +833,7 @@ export function StreamForm({
                           shouldValidate: true,
                         });
                       }}
-                      disabled={watchedType === "POSTGRES"}
+                      disabled={isVendor(watchedType, VENDOR_META.POSTGRES)}
                     >
                       <SelectTrigger className="bg-background">
                         <SelectValue />
@@ -850,7 +859,9 @@ export function StreamForm({
                       }
                       className="bg-background font-mono text-sm"
                       placeholder={
-                        watchedType === "POSTGRES" ? "trace_id" : "trace-id"
+                        isVendor(watchedType, VENDOR_META.POSTGRES)
+                          ? "trace_id"
+                          : "trace-id"
                       }
                     />
                     {form.formState.errors.correlationKeyName && (

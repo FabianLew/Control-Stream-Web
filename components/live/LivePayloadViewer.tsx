@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { LiveEventDto } from "@/components/lib/api/live";
 import { EventPayloadViewerSheet } from "@/components/viewer/EventPayloadViewerSheet";
 import type { ViewerMessage } from "@/types/viewer";
+import { isVendor, VENDOR_META } from "@/components/lib/vendors";
 
 function safeHeadersFromLive(event: LiveEventDto): Record<string, any> {
   // Live nie ma headers w kontrakcie – możemy w headers wkleić metadata + correlationId jako ułatwienie
@@ -25,14 +26,13 @@ export function LivePayloadViewer(props: {
     if (!e) return null;
 
     // messageId w live: zależy od vendorów — generujemy stabilny “synthetic id”
-    const syntheticId =
-      e.streamType === "KAFKA"
-        ? `kafka:${e.metadata.topic}:${e.metadata.partition}:${e.metadata.offset}`
-        : e.streamType === "RABBIT"
-        ? `rabbit:${e.metadata.queue}:${e.metadata.deliveryTag}`
-        : `pg:${e.metadata.schema}.${e.metadata.table}:${String(
-            e.metadata.cursorValue
-          )}`;
+    const syntheticId = isVendor(e.streamType, VENDOR_META.KAFKA)
+      ? `kafka:${e.metadata.topic}:${e.metadata.partition}:${e.metadata.offset}`
+      : isVendor(e.streamType, VENDOR_META.RABBIT)
+      ? `rabbit:${e.metadata.queue}:${e.metadata.deliveryTag}`
+      : `pg:${e.metadata.schema}.${e.metadata.table}:${String(
+          e.metadata.cursorValue
+        )}`;
 
     const payload = e.payload.payload ?? "";
     const payloadPretty = e.payload.payloadPretty ?? null;

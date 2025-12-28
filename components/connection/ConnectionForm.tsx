@@ -35,6 +35,8 @@ import {
   getVendorMeta,
   VENDOR_OPTIONS,
   type KnownVendor,
+  isVendor,
+  VENDOR_META,
 } from "@/components/lib/vendors";
 
 type ConnectionType = KnownVendor;
@@ -98,8 +100,8 @@ const defaultPostgresValues: CreateConnectionFormValues = {
 };
 
 function defaultsForType(type: ConnectionType): CreateConnectionFormValues {
-  if (type === "KAFKA") return defaultKafkaValues;
-  if (type === "RABBIT") return defaultRabbitValues;
+  if (isVendor(type, VENDOR_META.KAFKA)) return defaultKafkaValues;
+  if (isVendor(type, VENDOR_META.RABBIT)) return defaultRabbitValues;
   return defaultPostgresValues;
 }
 
@@ -146,7 +148,7 @@ function normalizeConnectionPayload(
   const type = raw.type as ConnectionType;
   const name = toRequiredString(raw.name, "");
 
-  if (type === "KAFKA") {
+  if (isVendor(type, VENDOR_META.KAFKA)) {
     const host = toRequiredString((raw.config as any).host, "localhost");
     const port = toRequiredNumber((raw.config as any).port, 9092);
 
@@ -178,7 +180,7 @@ function normalizeConnectionPayload(
     };
   }
 
-  if (type === "RABBIT") {
+  if (isVendor(type, VENDOR_META.RABBIT)) {
     const host = toRequiredString((raw.config as any).host, "localhost");
     const port = toRequiredNumber((raw.config as any).port, 5672);
     const username = toRequiredString((raw.config as any).username, "guest");
@@ -274,7 +276,7 @@ export function ConnectionForm({
   // init postgres db name from jdbcUrl once (edit case)
   const didInitPostgresDbRef = useRef(false);
   useEffect(() => {
-    if (selectedType !== "POSTGRES") return;
+    if (!isVendor(selectedType, VENDOR_META.POSTGRES)) return;
     if (didInitPostgresDbRef.current) return;
 
     const current = String(form.getValues("config.jdbcUrl") ?? "").trim();
@@ -291,7 +293,7 @@ export function ConnectionForm({
 
   // derived config: Kafka bootstrapServers (read-only field)
   useEffect(() => {
-    if (selectedType !== "KAFKA") return;
+    if (!isVendor(selectedType, VENDOR_META.KAFKA)) return;
 
     const host = toRequiredString(configHost, "localhost");
     const port = toRequiredNumber(configPort, 9092);
@@ -308,7 +310,7 @@ export function ConnectionForm({
 
   // derived config: Postgres jdbcUrl (read-only field)
   useEffect(() => {
-    if (selectedType !== "POSTGRES") return;
+    if (!isVendor(selectedType, VENDOR_META.POSTGRES)) return;
 
     const host = toRequiredString(configHost, "localhost");
     const port = toRequiredNumber(configPort, 5432);
@@ -338,7 +340,7 @@ export function ConnectionForm({
 
     // reset postgres db helper when switching vendors
     didInitPostgresDbRef.current = false;
-    if (val === "POSTGRES") setPostgresDatabaseName("postgres");
+    if (isVendor(val, VENDOR_META.POSTGRES)) setPostgresDatabaseName("postgres");
   };
 
   const configErrors = form.formState.errors?.config as any;
@@ -542,7 +544,7 @@ export function ConnectionForm({
               <Separator />
 
               {/* KAFKA */}
-              {selectedType === "KAFKA" && (
+              {isVendor(selectedType, VENDOR_META.KAFKA) && (
                 <div className="space-y-4 animate-in fade-in">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
@@ -606,7 +608,7 @@ export function ConnectionForm({
               )}
 
               {/* POSTGRES */}
-              {selectedType === "POSTGRES" && (
+              {isVendor(selectedType, VENDOR_META.POSTGRES) && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -674,7 +676,7 @@ export function ConnectionForm({
               )}
 
               {/* RABBIT */}
-              {selectedType === "RABBIT" && (
+              {isVendor(selectedType, VENDOR_META.RABBIT) && (
                 <div className="space-y-4 animate-in fade-in">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">

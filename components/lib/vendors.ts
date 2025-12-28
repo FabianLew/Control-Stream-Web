@@ -158,8 +158,7 @@ export const VENDOR_OPTIONS: VendorMeta[] = [
   VENDOR_META.RABBIT,
   VENDOR_META.POSTGRES,
 ];
-
-export function getVendorMeta(rawType?: string): VendorMeta {
+export function getVendorMeta(rawType?: string | null): VendorMeta {
   const t = String(rawType ?? "").toUpperCase();
 
   if (t.includes("KAFKA")) return VENDOR_META.KAFKA;
@@ -167,4 +166,12 @@ export function getVendorMeta(rawType?: string): VendorMeta {
   if (t.includes("POSTGRES") || t.includes("DB")) return VENDOR_META.POSTGRES;
 
   return GENERIC_VENDOR;
+}
+
+export function isVendor(
+  rawType: string | null | undefined,
+  vendor: VendorMeta | VendorId
+) {
+  const id = typeof vendor === "string" ? vendor : vendor.id;
+  return getVendorMeta(rawType).id === id;
 }

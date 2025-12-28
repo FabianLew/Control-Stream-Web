@@ -12,13 +12,14 @@ import type {
   RabbitStreamVendorConfigDto,
   PostgresStreamVendorConfigDto,
 } from "@/types/stream";
+import { isVendor, VENDOR_META } from "@/components/lib/vendors";
 
 const isKafka = (v: StreamVendorConfigDto): v is KafkaStreamVendorConfigDto =>
-  v.vendor === "KAFKA";
+  isVendor(v.vendor, VENDOR_META.KAFKA);
 
 const isRabbit = (v: StreamVendorConfigDto): v is RabbitStreamVendorConfigDto =>
-  v.vendor === "RABBIT";
+  isVendor(v.vendor, VENDOR_META.RABBIT);
 
 const isPostgres = (
   v: StreamVendorConfigDto
-): v is PostgresStreamVendorConfigDto => v.vendor === "POSTGRES";
+): v is PostgresStreamVendorConfigDto => isVendor(v.vendor, VENDOR_META.POSTGRES);

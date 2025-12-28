@@ -21,7 +21,7 @@ import {
   PlugZap,
   ChevronUp,
 } from "lucide-react";
-import { getVendorMeta } from "@/components/lib/vendors";
+import { getVendorMeta, isVendor, VENDOR_META } from "@/components/lib/vendors";
 
 // UI Components
 import { Button } from "@/components/ui/button";
@@ -49,7 +49,19 @@ import { JsonBlock } from "@/components/shared/JsonBlock";
 import { CopyButton } from "@/components/shared/CopyButton";
 
 // Types
-import type { StreamOverviewDto } from "@/types/stream";
+import type {
+  StreamOverviewDto,
+  StreamVendorConfigDto,
+  KafkaStreamVendorConfigDto,
+  RabbitStreamVendorConfigDto,
+  PostgresStreamVendorConfigDto,
+} from "@/types/stream";
+import type {
+  ConnectionConfigDto,
+  KafkaConnectionConfigDto,
+  RabbitConnectionConfigDto,
+  PostgresConnectionConfigDto,
+} from "@/types/connection";
 
 interface Props {
   streamId: string;
@@ -263,8 +275,20 @@ function StreamVendorConfigSection({
 }: {
   vendorConfig: StreamOverviewDto["vendorConfig"];
 }) {
-  switch (vendorConfig.vendor) {
-    case "KAFKA":
+  const isKafkaVendorConfig = (
+    v: StreamVendorConfigDto
+  ): v is KafkaStreamVendorConfigDto =>
+    isVendor(v.vendor, VENDOR_META.KAFKA);
+  const isRabbitVendorConfig = (
+    v: StreamVendorConfigDto
+  ): v is RabbitStreamVendorConfigDto =>
+    isVendor(v.vendor, VENDOR_META.RABBIT);
+  const isPostgresVendorConfig = (
+    v: StreamVendorConfigDto
+  ): v is PostgresStreamVendorConfigDto =>
+    isVendor(v.vendor, VENDOR_META.POSTGRES);
+
+  if (isKafkaVendorConfig(vendorConfig)) {
       return (
         <div className="space-y-3">
           <KeyValueRow
@@ -297,8 +321,9 @@ function StreamVendorConfigSection({
           />
         </div>
       );
+  }
 
-    case "RABBIT":
+  if (isRabbitVendorConfig(vendorConfig)) {
       return (
         <div className="space-y-3">
           <KeyValueRow
@@ -376,8 +401,9 @@ function StreamVendorConfigSection({
           />
         </div>
       );
+  }
 
-    case "POSTGRES":
+  if (isPostgresVendorConfig(vendorConfig)) {
       return (
         <div className="space-y-3">
           <KeyValueRow
@@ -416,10 +442,9 @@ function StreamVendorConfigSection({
           />
         </div>
       );
-
-    default:
-      return <JsonBlock value={vendorConfig} />;
   }
+
+  return <JsonBlock value={vendorConfig} />;
 }
 
 // --- Decoding section ---
@@ -536,6 +561,17 @@ function ConnectionConfigMini({
 }: {
   config: StreamOverviewDto["connectionConfig"];
 }) {
+  const isKafkaConfig = (
+    v: ConnectionConfigDto
+  ): v is KafkaConnectionConfigDto => isVendor(v.vendor, VENDOR_META.KAFKA);
+  const isRabbitConfig = (
+    v: ConnectionConfigDto
+  ): v is RabbitConnectionConfigDto => isVendor(v.vendor, VENDOR_META.RABBIT);
+  const isPostgresConfig = (
+    v: ConnectionConfigDto
+  ): v is PostgresConnectionConfigDto =>
+    isVendor(v.vendor, VENDOR_META.POSTGRES);
+
   return (
     <div className="space-y-3">
       <KeyValueRow
@@ -549,7 +585,7 @@ function ConnectionConfigMini({
         copyText={`${config.host}:${config.port}`}
       />
 
-      {config.vendor === "KAFKA" ? (
+      {isKafkaConfig(config) ? (
         <>
           <KeyValueRow
             label="Bootstrap"
@@ -574,7 +610,7 @@ function ConnectionConfigMini({
         </>
       ) : null}
 
-      {config.vendor === "RABBIT" ? (
+      {isRabbitConfig(config) ? (
         <>
           {config.virtualHost ? (
             <KeyValueRow label="VHost" value={config.virtualHost} mono />
@@ -585,7 +621,7 @@ function ConnectionConfigMini({
         </>
       ) : null}
 
-      {config.vendor === "POSTGRES" ? (
+      {isPostgresConfig(config) ? (
         <>
           {config.jdbcUrl ? (
             <KeyValueRow label="JDBC URL" value={config.jdbcUrl} mono />
@@ -919,7 +955,7 @@ export function StreamOverviewPage({ streamId }: Props) {
                         <Send size={20} />
                         Publish
                       </Button>
-                      {stream.type === "POSTGRES" ? (
+                      {isVendor(stream.type, VENDOR_META.POSTGRES) ? (
                         <Button
                           variant="outline"
                           className={`h-20 flex flex-col gap-2 ${streamVendor.buttonAccent}`}

@@ -7,6 +7,7 @@ import type { LiveEventDto } from "@/components/lib/api/live";
 import { Badge } from "@/components/ui/badge";
 import { CopyButton } from "@/components/shared/CopyButton";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
+import { isVendor, VENDOR_META } from "@/components/lib/vendors";
 
 function formatPreview(e: LiveEventDto) {
   const raw = e.payload.payloadPretty ?? e.payload.payload ?? "";
@@ -35,10 +36,10 @@ function formatTime(ts: string) {
  * - Postgres: schema/table/cursorValue
  */
 function liveEventKey(e: LiveEventDto) {
-  if (e.streamType === "KAFKA") {
+  if (isVendor(e.streamType, VENDOR_META.KAFKA)) {
     return `k:${e.streamId}:${e.metadata.topic}:${e.metadata.partition}:${e.metadata.offset}`;
   }
-  if (e.streamType === "RABBIT") {
+  if (isVendor(e.streamType, VENDOR_META.RABBIT)) {
     return `r:${e.streamId}:${e.metadata.queue}:${e.metadata.deliveryTag}`;
   }
   return `p:${e.streamId}:${e.metadata.schema}.${e.metadata.table}:${String(
