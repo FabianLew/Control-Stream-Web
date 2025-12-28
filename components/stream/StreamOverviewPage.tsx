@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Search,
@@ -12,7 +13,6 @@ import {
   Code,
   Activity,
   Settings2,
-  Copy,
   Hash,
   Cpu,
   IdCard,
@@ -20,7 +20,9 @@ import {
   Braces,
   PlugZap,
   ChevronUp,
+  Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { getVendorMeta, isVendor, VENDOR_META } from "@/components/lib/vendors";
 
 // UI Components
@@ -47,6 +49,7 @@ import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
 import { KeyValueRow } from "@/components/shared/KeyValueRow";
 import { JsonBlock } from "@/components/shared/JsonBlock";
 import { CopyButton } from "@/components/shared/CopyButton";
+import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 
 // Types
 import type {
@@ -218,12 +221,10 @@ function StickySectionDock({
   return (
     <div
       className="
-  sticky
-  top-0
-  z-30
-  -mx-6 md:-mx-8 px-6 md:px-8
-  py-3
-"
+        sticky top-0 z-30
+        -mx-6 md:-mx-8 px-6 md:px-8
+        py-3
+      "
     >
       <div className="rounded-2xl border border-border/60 bg-background/70 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-sm">
         <div className="flex flex-col gap-2 p-3">
@@ -277,171 +278,157 @@ function StreamVendorConfigSection({
 }) {
   const isKafkaVendorConfig = (
     v: StreamVendorConfigDto
-  ): v is KafkaStreamVendorConfigDto =>
-    isVendor(v.vendor, VENDOR_META.KAFKA);
+  ): v is KafkaStreamVendorConfigDto => isVendor(v.vendor, VENDOR_META.KAFKA);
+
   const isRabbitVendorConfig = (
     v: StreamVendorConfigDto
-  ): v is RabbitStreamVendorConfigDto =>
-    isVendor(v.vendor, VENDOR_META.RABBIT);
+  ): v is RabbitStreamVendorConfigDto => isVendor(v.vendor, VENDOR_META.RABBIT);
+
   const isPostgresVendorConfig = (
     v: StreamVendorConfigDto
   ): v is PostgresStreamVendorConfigDto =>
     isVendor(v.vendor, VENDOR_META.POSTGRES);
 
   if (isKafkaVendorConfig(vendorConfig)) {
-      return (
-        <div className="space-y-3">
-          <KeyValueRow
-            label="Topic"
-            value={
-              vendorConfig.topic ?? <Badge variant="outline">default</Badge>
-            }
-            mono
-            copyText={vendorConfig.topic ?? undefined}
-          />
-          <KeyValueRow
-            label="Consumer Group"
-            value={
-              vendorConfig.consumerGroupId ?? (
-                <Badge variant="outline">default</Badge>
-              )
-            }
-            mono
-            copyText={vendorConfig.consumerGroupId ?? undefined}
-          />
-          <KeyValueRow
-            label="Correlation Header"
-            value={
-              vendorConfig.correlationHeader ?? (
-                <Badge variant="outline">default</Badge>
-              )
-            }
-            mono
-            copyText={vendorConfig.correlationHeader ?? undefined}
-          />
-        </div>
-      );
+    return (
+      <div className="space-y-3">
+        <KeyValueRow
+          label="Topic"
+          value={vendorConfig.topic ?? <Badge variant="outline">default</Badge>}
+          mono
+          copyText={vendorConfig.topic ?? undefined}
+        />
+        <KeyValueRow
+          label="Consumer Group"
+          value={
+            vendorConfig.consumerGroupId ?? (
+              <Badge variant="outline">default</Badge>
+            )
+          }
+          mono
+          copyText={vendorConfig.consumerGroupId ?? undefined}
+        />
+        <KeyValueRow
+          label="Correlation Header"
+          value={
+            vendorConfig.correlationHeader ?? (
+              <Badge variant="outline">default</Badge>
+            )
+          }
+          mono
+          copyText={vendorConfig.correlationHeader ?? undefined}
+        />
+      </div>
+    );
   }
 
   if (isRabbitVendorConfig(vendorConfig)) {
-      return (
-        <div className="space-y-3">
+    return (
+      <div className="space-y-3">
+        <KeyValueRow
+          label="Queue"
+          value={vendorConfig.queue ?? <Badge variant="outline">not set</Badge>}
+          mono
+        />
+        <KeyValueRow
+          label="Exchange"
+          value={
+            vendorConfig.exchange ?? <Badge variant="outline">not set</Badge>
+          }
+          mono
+        />
+        <KeyValueRow
+          label="Routing Key"
+          value={
+            vendorConfig.routingKey ?? <Badge variant="outline">not set</Badge>
+          }
+          mono
+        />
+        <KeyValueRow
+          label="Prefetch"
+          value={
+            vendorConfig.prefetchCount ?? (
+              <Badge variant="outline">default</Badge>
+            )
+          }
+          mono
+        />
+        <KeyValueRow
+          label="Shadow Queue"
+          value={
+            vendorConfig.shadowQueueEnabled ? (
+              <Badge
+                variant="outline"
+                className="border-emerald-500/20 bg-emerald-500/10 text-emerald-500"
+              >
+                enabled
+              </Badge>
+            ) : (
+              <Badge variant="outline">disabled</Badge>
+            )
+          }
+        />
+        {vendorConfig.shadowQueueEnabled ? (
           <KeyValueRow
-            label="Queue"
+            label="Shadow Queue Name"
             value={
-              vendorConfig.queue ?? <Badge variant="outline">not set</Badge>
-            }
-            mono
-          />
-          <KeyValueRow
-            label="Exchange"
-            value={
-              vendorConfig.exchange ?? <Badge variant="outline">not set</Badge>
-            }
-            mono
-          />
-          <KeyValueRow
-            label="Routing Key"
-            value={
-              vendorConfig.routingKey ?? (
-                <Badge variant="outline">not set</Badge>
+              vendorConfig.shadowQueueName ?? (
+                <Badge variant="outline">auto</Badge>
               )
             }
             mono
+            copyText={vendorConfig.shadowQueueName ?? undefined}
           />
-          <KeyValueRow
-            label="Prefetch"
-            value={
-              vendorConfig.prefetchCount ?? (
-                <Badge variant="outline">default</Badge>
-              )
-            }
-            mono
-          />
-
-          {/* FIX: make it consistent with badges */}
-          <KeyValueRow
-            label="Shadow Queue"
-            value={
-              vendorConfig.shadowQueueEnabled ? (
-                <Badge
-                  variant="outline"
-                  className="border-emerald-500/20 bg-emerald-500/10 text-emerald-500"
-                >
-                  enabled
-                </Badge>
-              ) : (
-                <Badge variant="outline">disabled</Badge>
-              )
-            }
-          />
-
-          {vendorConfig.shadowQueueEnabled ? (
-            <KeyValueRow
-              label="Shadow Queue Name"
-              value={
-                vendorConfig.shadowQueueName ?? (
-                  <Badge variant="outline">auto</Badge>
-                )
-              }
-              mono
-              copyText={vendorConfig.shadowQueueName ?? undefined}
-            />
-          ) : null}
-
-          <KeyValueRow
-            label="Correlation Header"
-            value={
-              vendorConfig.correlationHeader ?? (
-                <Badge variant="outline">default</Badge>
-              )
-            }
-            mono
-            copyText={vendorConfig.correlationHeader ?? undefined}
-          />
-        </div>
-      );
+        ) : null}
+        <KeyValueRow
+          label="Correlation Header"
+          value={
+            vendorConfig.correlationHeader ?? (
+              <Badge variant="outline">default</Badge>
+            )
+          }
+          mono
+          copyText={vendorConfig.correlationHeader ?? undefined}
+        />
+      </div>
+    );
   }
 
   if (isPostgresVendorConfig(vendorConfig)) {
-      return (
-        <div className="space-y-3">
-          <KeyValueRow
-            label="Schema"
-            value={
-              vendorConfig.schema ?? <Badge variant="outline">default</Badge>
-            }
-            mono
-          />
-          <KeyValueRow
-            label="Table"
-            value={
-              vendorConfig.table ?? <Badge variant="outline">default</Badge>
-            }
-            mono
-          />
-          <KeyValueRow
-            label="Correlation Column"
-            value={
-              vendorConfig.correlationColumn ?? (
-                <Badge variant="outline">not set</Badge>
-              )
-            }
-            mono
-            copyText={vendorConfig.correlationColumn ?? undefined}
-          />
-          <KeyValueRow
-            label="Time Column"
-            value={
-              vendorConfig.timeColumn ?? (
-                <Badge variant="outline">not set</Badge>
-              )
-            }
-            mono
-            copyText={vendorConfig.timeColumn ?? undefined}
-          />
-        </div>
-      );
+    return (
+      <div className="space-y-3">
+        <KeyValueRow
+          label="Schema"
+          value={
+            vendorConfig.schema ?? <Badge variant="outline">default</Badge>
+          }
+          mono
+        />
+        <KeyValueRow
+          label="Table"
+          value={vendorConfig.table ?? <Badge variant="outline">default</Badge>}
+          mono
+        />
+        <KeyValueRow
+          label="Correlation Column"
+          value={
+            vendorConfig.correlationColumn ?? (
+              <Badge variant="outline">not set</Badge>
+            )
+          }
+          mono
+          copyText={vendorConfig.correlationColumn ?? undefined}
+        />
+        <KeyValueRow
+          label="Time Column"
+          value={
+            vendorConfig.timeColumn ?? <Badge variant="outline">not set</Badge>
+          }
+          mono
+          copyText={vendorConfig.timeColumn ?? undefined}
+        />
+      </div>
+    );
   }
 
   return <JsonBlock value={vendorConfig} />;
@@ -564,9 +551,11 @@ function ConnectionConfigMini({
   const isKafkaConfig = (
     v: ConnectionConfigDto
   ): v is KafkaConnectionConfigDto => isVendor(v.vendor, VENDOR_META.KAFKA);
+
   const isRabbitConfig = (
     v: ConnectionConfigDto
   ): v is RabbitConnectionConfigDto => isVendor(v.vendor, VENDOR_META.RABBIT);
+
   const isPostgresConfig = (
     v: ConnectionConfigDto
   ): v is PostgresConnectionConfigDto =>
@@ -636,6 +625,9 @@ function ConnectionConfigMini({
 }
 
 export function StreamOverviewPage({ streamId }: Props) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+
   const {
     data: stream,
     isLoading,
@@ -651,449 +643,527 @@ export function StreamOverviewPage({ streamId }: Props) {
   const [rawDecodingOpen, setRawDecodingOpen] = useState(false);
   const [rawConnectionOpen, setRawConnectionOpen] = useState(false);
 
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/streams/${streamId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete stream");
+    },
+    onSuccess: () => {
+      toast.success("Stream deleted successfully");
+
+      queryClient.invalidateQueries({ queryKey: ["streams"] });
+      queryClient.invalidateQueries({
+        queryKey: ["stream-overview", streamId],
+      });
+
+      router.push("/streams");
+      router.refresh();
+    },
+    onError: () => {
+      toast.error("Stream not deleted", {
+        description: "Something went wrong. Please try again.",
+      });
+    },
+  });
+
   if (isLoading) return <StreamSkeleton />;
   if (isError || !stream)
     return (
       <div className="p-8 text-destructive">Failed to load stream data.</div>
     );
+
   const streamVendor = getVendorMeta(stream.type);
 
   return (
-    <div className="min-h-screen bg-background p-6 md:p-8 space-y-4">
-      {/* Header */}
-      <div className="fade-in">
-        <div className="flex flex-col gap-5">
-          <Link
-            href="/streams"
-            className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors w-fit group"
-          >
-            <ArrowLeft
-              size={16}
-              className="mr-1 group-hover:-translate-x-1 transition-transform"
-            />
-            Back to Streams
-          </Link>
-        </div>
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-border pb-5">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground">
-                {stream.name}
-              </h1>
-              <StreamTypeBadge
-                type={stream.type}
-                className="text-sm px-2.5 py-0.5 border-2"
+    <>
+      <div className="min-h-screen bg-background p-6 md:p-8 space-y-4">
+        {/* Header */}
+        <div className="fade-in">
+          <div className="flex flex-col gap-5">
+            <Link
+              href="/streams"
+              className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors w-fit group"
+            >
+              <ArrowLeft
+                size={16}
+                className="mr-1 group-hover:-translate-x-1 transition-transform"
               />
-            </div>
+              Back to Streams
+            </Link>
+          </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6 text-sm text-muted-foreground">
-              <div className="flex items-center gap-2 font-mono bg-muted/50 px-2 py-0.5 rounded text-xs">
-                <Hash size={12} />
-                {stream.id}
-                <CopyButton
-                  text={stream.id}
-                  label="Stream ID"
-                  className="h-4 w-4 ml-2 text-muted-foreground hover:text-foreground opacity-50 hover:opacity-100 transition-all"
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-border pb-5">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground">
+                  {stream.name}
+                </h1>
+                <StreamTypeBadge
+                  type={stream.type}
+                  className="text-sm px-2.5 py-0.5 border-2"
                 />
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground/70">Connected via:</span>
-                <Link
-                  href={`/connections/${stream.connectionId}`}
-                  className="flex items-center gap-1.5 font-medium text-foreground hover:text-primary transition-colors hover:underline"
-                >
-                  <VendorIcon
-                    type={stream.connectionType}
-                    className="w-4 h-4"
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2 font-mono bg-muted/50 px-2 py-0.5 rounded text-xs">
+                  <Hash size={12} />
+                  {stream.id}
+                  <CopyButton
+                    text={stream.id}
+                    label="Stream ID"
+                    className="h-4 w-4 ml-2 text-muted-foreground hover:text-foreground opacity-50 hover:opacity-100 transition-all"
                   />
-                  {stream.connectionName}
-                  <ExternalLink size={12} className="opacity-50" />
-                </Link>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground/70">
+                    Connected via:
+                  </span>
+                  <Link
+                    href={`/connections/${stream.connectionId}`}
+                    className="flex items-center gap-1.5 font-medium text-foreground hover:text-primary transition-colors hover:underline"
+                  >
+                    <VendorIcon
+                      type={stream.connectionType}
+                      className="w-4 h-4"
+                    />
+                    {stream.connectionName}
+                    <ExternalLink size={12} className="opacity-50" />
+                  </Link>
+                </div>
               </div>
             </div>
-          </div>
 
-          <Button variant="outline" className="gap-2 shadow-sm">
-            <Settings2 size={16} /> Configure Stream
-          </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" className="gap-2 shadow-sm">
+                <Settings2 size={16} /> Configure Stream
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2 shadow-sm border-destructive/30 text-destructive hover:bg-destructive/10"
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Trash2 size={16} />
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Dock */}
+        <StickySectionDock
+          active={active}
+          streamType={stream.type}
+          onPick={(id) => {
+            setActive(id);
+            scrollToSection(id);
+
+            if (id === "connection") {
+              window.setTimeout(() => setActive("identity"), 600);
+            }
+          }}
+        />
+
+        {/* Tabs */}
+        <div className="fade-in">
+          <Tabs defaultValue="overview" className="w-full space-y-6">
+            <TabsList className="w-full md:w-auto grid grid-cols-3 md:inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="messages">Messages</TabsTrigger>
+              <TabsTrigger value="vendor">Vendor Panel</TabsTrigger>
+            </TabsList>
+
+            {/* Overview */}
+            <TabsContent
+              value="overview"
+              className="space-y-6 animate-in slide-in-from-bottom-2 duration-500"
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Left */}
+                <div className="lg:col-span-2 space-y-8">
+                  <SectionFrame id="identity" active={active === "identity"}>
+                    <SectionLandmark
+                      icon={IdCard}
+                      title="Stream identity"
+                      hint="Core identifiers"
+                    />
+                    <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
+                      <CardHeader className="bg-muted/30 border-b border-border/40">
+                        <CardTitle className="text-base">Identity</CardTitle>
+                        <CardDescription>
+                          Optimized for quick copy & support workflows.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="p-6 space-y-5">
+                        <KeyValueRow
+                          label="Technical Name"
+                          value={
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-muted/40 border border-border rounded-md font-mono text-sm text-foreground">
+                              {stream.technicalName}
+                              <CopyButton
+                                text={stream.technicalName}
+                                label="Technical Name"
+                                className="h-4 w-4 ml-2 text-muted-foreground hover:text-foreground opacity-50 hover:opacity-100 transition-all"
+                              />
+                            </div>
+                          }
+                          mono
+                        />
+                        <KeyValueRow
+                          label="Type"
+                          value={<StreamTypeBadge type={stream.type} />}
+                        />
+                        <KeyValueRow
+                          label="Stream ID"
+                          value={
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {stream.id}
+                            </span>
+                          }
+                          mono
+                          copyText={stream.id}
+                        />
+                      </CardContent>
+                    </Card>
+                  </SectionFrame>
+
+                  <SectionFrame id="vendor" active={active === "vendor"}>
+                    <SectionLandmark
+                      icon={SlidersHorizontal}
+                      title="Vendor configuration"
+                      hint={stream.vendorConfig.vendor}
+                    />
+                    <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
+                      <CardHeader className="bg-muted/30 border-b border-border/40">
+                        <CardTitle className="text-base">
+                          Vendor configuration
+                        </CardTitle>
+                        <CardDescription>
+                          Settings specific to Kafka / Rabbit / Postgres.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="p-6 space-y-5">
+                        <StreamVendorConfigSection
+                          vendorConfig={stream.vendorConfig}
+                        />
+
+                        <Separator />
+
+                        <Collapsible
+                          open={rawVendorOpen}
+                          onOpenChange={setRawVendorOpen}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="text-sm font-medium">
+                              Raw vendor config
+                            </div>
+                            <CollapsibleTrigger asChild>
+                              <Button variant="outline" size="sm">
+                                {rawVendorOpen ? "Hide JSON" : "Show JSON"}
+                              </Button>
+                            </CollapsibleTrigger>
+                          </div>
+                          <CollapsibleContent className="mt-3">
+                            <JsonBlock value={stream.vendorConfig} />
+                          </CollapsibleContent>
+                        </Collapsible>
+                      </CardContent>
+                    </Card>
+                  </SectionFrame>
+
+                  <SectionFrame id="decoding" active={active === "decoding"}>
+                    <SectionLandmark
+                      icon={Braces}
+                      title="Payload decoding"
+                      hint={`${stream.decoding.schemaSource} · ${stream.decoding.formatHint}`}
+                    />
+                    <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
+                      <CardHeader className="bg-muted/30 border-b border-border/40">
+                        <CardTitle className="text-base">
+                          Payload decoding
+                        </CardTitle>
+                        <CardDescription>
+                          Schema Registry or Schema Bundles strategy.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="p-6 space-y-5">
+                        <DecodingSection decoding={stream.decoding} />
+
+                        <Separator />
+
+                        <Collapsible
+                          open={rawDecodingOpen}
+                          onOpenChange={setRawDecodingOpen}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="text-sm font-medium">
+                              Raw decoding config
+                            </div>
+                            <CollapsibleTrigger asChild>
+                              <Button variant="outline" size="sm">
+                                {rawDecodingOpen ? "Hide JSON" : "Show JSON"}
+                              </Button>
+                            </CollapsibleTrigger>
+                          </div>
+                          <CollapsibleContent className="mt-3">
+                            <JsonBlock value={stream.decoding} />
+                          </CollapsibleContent>
+                        </Collapsible>
+                      </CardContent>
+                    </Card>
+                  </SectionFrame>
+
+                  <SectionFrame id="advanced" active={active === "advanced"}>
+                    <SectionLandmark
+                      icon={Code}
+                      title="Advanced & debug"
+                      hint="Support view"
+                    />
+                    <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
+                      <CardHeader className="bg-muted/30 border-b border-border/40">
+                        <CardTitle className="text-base">
+                          Advanced & debug
+                        </CardTitle>
+                        <CardDescription>
+                          Keep it collapsed by default for a cleaner overview.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="p-6 space-y-5">
+                        <div className="text-sm text-muted-foreground">
+                          Use when troubleshooting schema mismatch, auth,
+                          routing or decoding.
+                        </div>
+
+                        <Collapsible
+                          open={rawConnectionOpen}
+                          onOpenChange={setRawConnectionOpen}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="text-sm font-medium">
+                              Raw connection config
+                            </div>
+                            <CollapsibleTrigger asChild>
+                              <Button variant="outline" size="sm">
+                                {rawConnectionOpen ? "Hide JSON" : "Show JSON"}
+                              </Button>
+                            </CollapsibleTrigger>
+                          </div>
+                          <CollapsibleContent className="mt-3">
+                            <JsonBlock value={stream.connectionConfig} />
+                          </CollapsibleContent>
+                        </Collapsible>
+                      </CardContent>
+                    </Card>
+                  </SectionFrame>
+
+                  {/* Quick Actions */}
+                  <Card className="rounded-xl shadow-sm border-border/60 bg-card">
+                    <CardHeader className="pb-4">
+                      <CardTitle className="text-base">Quick Actions</CardTitle>
+                      <CardDescription>
+                        Shortcuts for common operational tasks.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <Button
+                          variant="outline"
+                          className="h-20 flex flex-col gap-2 hover:border-primary/50 hover:bg-primary/5"
+                        >
+                          <Search size={20} />
+                          Search
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="h-20 flex flex-col gap-2 hover:border-primary/50 hover:bg-primary/5"
+                        >
+                          <Send size={20} />
+                          Publish
+                        </Button>
+
+                        {isVendor(stream.type, VENDOR_META.POSTGRES) ? (
+                          <Button
+                            variant="outline"
+                            className={`h-20 flex flex-col gap-2 ${streamVendor.buttonAccent}`}
+                          >
+                            <Terminal size={20} />
+                            SQL Explorer
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            className="h-20 flex flex-col gap-2 opacity-50"
+                            disabled
+                          >
+                            <Terminal size={20} />
+                            SQL Explorer
+                          </Button>
+                        )}
+
+                        <Button
+                          variant="outline"
+                          className="h-20 flex flex-col gap-2 opacity-50 cursor-not-allowed"
+                          disabled
+                        >
+                          <Activity size={20} />
+                          Stats (Soon)
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Right sticky column */}
+                <div className="space-y-6 sticky top-[140px] self-start">
+                  <SectionFrame
+                    id="connection"
+                    active={active === "connection"}
+                  >
+                    <SectionLandmark
+                      icon={PlugZap}
+                      title="Connection context"
+                      hint="Sticky card"
+                    />
+                    <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
+                      <CardHeader className="bg-muted/30 border-b border-border/40">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <CardTitle className="text-base">
+                              Connection context
+                            </CardTitle>
+                            <CardDescription>
+                              Always visible while you scroll.
+                            </CardDescription>
+                          </div>
+                          <VendorIcon
+                            type={stream.connectionType}
+                            className="w-5 h-5"
+                          />
+                        </div>
+                      </CardHeader>
+                      <CardContent className="p-6 space-y-5 text-sm">
+                        <div className="flex justify-between items-center h-6">
+                          <span className="text-muted-foreground text-[10px] uppercase tracking-wider">
+                            Type
+                          </span>
+                          <StreamTypeBadge type={stream.connectionType} />
+                        </div>
+
+                        <Separator />
+
+                        <ConnectionConfigMini
+                          config={stream.connectionConfig}
+                        />
+
+                        <div className="pt-2">
+                          <Button
+                            variant="secondary"
+                            className="w-full gap-2 font-medium"
+                            asChild
+                          >
+                            <Link href={`/connections/${stream.connectionId}`}>
+                              Open Connection Details <ExternalLink size={14} />
+                            </Link>
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </SectionFrame>
+
+                  <Card className="rounded-xl border-dashed border-border/60 bg-muted/5 opacity-70">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+                        <Cpu size={14} /> Live Metrics
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-xs text-muted-foreground pb-6">
+                      Real-time throughput and latency metrics will appear here
+                      in a future update.
+                    </CardContent>
+                  </Card>
+
+                  <div className="pt-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full justify-between text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        const scroller = document.getElementById("app-scroll");
+                        if (scroller) {
+                          scroller.scrollTo({ top: 0, behavior: "smooth" });
+                        } else {
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }
+                      }}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <ChevronUp size={14} />
+                        Back to top
+                      </span>
+                      <span className="opacity-60">↑</span>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* Messages */}
+            <TabsContent value="messages">
+              <Card className="min-h-[420px] flex items-center justify-center rounded-xl border-dashed border-border bg-muted/5">
+                <div className="text-center space-y-3">
+                  <div className="bg-background border border-border w-12 h-12 rounded-full flex items-center justify-center mx-auto shadow-sm">
+                    <Search size={24} className="text-muted-foreground" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-medium">Message Explorer</h3>
+                    <p className="text-muted-foreground text-sm max-w-sm mx-auto mt-1">
+                      Connect to <b>{stream.technicalName}</b> to browse live
+                      messages.
+                    </p>
+                  </div>
+                  <Button className="mt-4">Connect & Browse</Button>
+                </div>
+              </Card>
+            </TabsContent>
+
+            {/* Vendor Panel */}
+            <TabsContent value="vendor">
+              <Card className="rounded-xl border-border/60">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Settings2 className="w-5 h-5" />
+                    {stream.type} Specific Settings
+                  </CardTitle>
+                  <CardDescription>
+                    Advanced configuration for {stream.technicalName}.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="min-h-[220px] flex items-center justify-center bg-muted/10">
+                  <div className="text-sm text-muted-foreground italic">
+                    Extended controls for {stream.type} will be implemented
+                    here.
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
 
-      {/* Dock is fixed */}
-      <StickySectionDock
-        active={active}
-        streamType={stream.type}
-        onPick={(id) => {
-          // highlight immediately
-          setActive(id);
-
-          // scroll to the section
-          scrollToSection(id);
-
-          // Optional: if you DON'T observe "connection" (recommended),
-          // keep the highlight for a moment so the user sees feedback.
-          if (id === "connection") {
-            window.setTimeout(() => setActive("identity"), 600);
-          }
-        }}
+      <ConfirmDeleteDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Delete stream?"
+        description={`This will permanently remove "${stream.name}". This action cannot be undone.`}
+        confirmLabel="Delete Stream"
+        isLoading={deleteMutation.isPending}
+        onConfirm={() => deleteMutation.mutate()}
       />
-
-      {/* Tabs */}
-      <div className="fade-in">
-        <Tabs defaultValue="overview" className="w-full space-y-6">
-          <TabsList className="w-full md:w-auto grid grid-cols-3 md:inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="messages">Messages</TabsTrigger>
-            <TabsTrigger value="vendor">Vendor Panel</TabsTrigger>
-          </TabsList>
-
-          {/* Overview */}
-          <TabsContent
-            value="overview"
-            className="space-y-6 animate-in slide-in-from-bottom-2 duration-500"
-          >
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Left */}
-              <div className="lg:col-span-2 space-y-8">
-                <SectionFrame id="identity" active={active === "identity"}>
-                  <SectionLandmark
-                    icon={IdCard}
-                    title="Stream identity"
-                    hint="Core identifiers"
-                  />
-                  <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
-                    <CardHeader className="bg-muted/30 border-b border-border/40">
-                      <CardTitle className="text-base">Identity</CardTitle>
-                      <CardDescription>
-                        Optimized for quick copy & support workflows.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-6 space-y-5">
-                      <KeyValueRow
-                        label="Technical Name"
-                        value={
-                          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-muted/40 border border-border rounded-md font-mono text-sm text-foreground">
-                            {stream.technicalName}
-                            <CopyButton
-                              text={stream.technicalName}
-                              label="Technical Name"
-                              className="h-4 w-4 ml-2 text-muted-foreground hover:text-foreground opacity-50 hover:opacity-100 transition-all"
-                            />
-                          </div>
-                        }
-                        mono
-                      />
-                      <KeyValueRow
-                        label="Type"
-                        value={<StreamTypeBadge type={stream.type} />}
-                      />
-                      <KeyValueRow
-                        label="Stream ID"
-                        value={
-                          <span className="font-mono text-xs text-muted-foreground">
-                            {stream.id}
-                          </span>
-                        }
-                        mono
-                        copyText={stream.id}
-                      />
-                    </CardContent>
-                  </Card>
-                </SectionFrame>
-
-                <SectionFrame id="vendor" active={active === "vendor"}>
-                  <SectionLandmark
-                    icon={SlidersHorizontal}
-                    title="Vendor configuration"
-                    hint={stream.vendorConfig.vendor}
-                  />
-                  <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
-                    <CardHeader className="bg-muted/30 border-b border-border/40">
-                      <CardTitle className="text-base">
-                        Vendor configuration
-                      </CardTitle>
-                      <CardDescription>
-                        Settings specific to Kafka / Rabbit / Postgres.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-6 space-y-5">
-                      <StreamVendorConfigSection
-                        vendorConfig={stream.vendorConfig}
-                      />
-
-                      <Separator />
-
-                      <Collapsible
-                        open={rawVendorOpen}
-                        onOpenChange={setRawVendorOpen}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="text-sm font-medium">
-                            Raw vendor config
-                          </div>
-                          <CollapsibleTrigger asChild>
-                            <Button variant="outline" size="sm">
-                              {rawVendorOpen ? "Hide JSON" : "Show JSON"}
-                            </Button>
-                          </CollapsibleTrigger>
-                        </div>
-                        <CollapsibleContent className="mt-3">
-                          <JsonBlock value={stream.vendorConfig} />
-                        </CollapsibleContent>
-                      </Collapsible>
-                    </CardContent>
-                  </Card>
-                </SectionFrame>
-
-                <SectionFrame id="decoding" active={active === "decoding"}>
-                  <SectionLandmark
-                    icon={Braces}
-                    title="Payload decoding"
-                    hint={`${stream.decoding.schemaSource} · ${stream.decoding.formatHint}`}
-                  />
-                  <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
-                    <CardHeader className="bg-muted/30 border-b border-border/40">
-                      <CardTitle className="text-base">
-                        Payload decoding
-                      </CardTitle>
-                      <CardDescription>
-                        Schema Registry or Schema Bundles strategy.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-6 space-y-5">
-                      <DecodingSection decoding={stream.decoding} />
-
-                      <Separator />
-
-                      <Collapsible
-                        open={rawDecodingOpen}
-                        onOpenChange={setRawDecodingOpen}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="text-sm font-medium">
-                            Raw decoding config
-                          </div>
-                          <CollapsibleTrigger asChild>
-                            <Button variant="outline" size="sm">
-                              {rawDecodingOpen ? "Hide JSON" : "Show JSON"}
-                            </Button>
-                          </CollapsibleTrigger>
-                        </div>
-                        <CollapsibleContent className="mt-3">
-                          <JsonBlock value={stream.decoding} />
-                        </CollapsibleContent>
-                      </Collapsible>
-                    </CardContent>
-                  </Card>
-                </SectionFrame>
-
-                <SectionFrame id="advanced" active={active === "advanced"}>
-                  <SectionLandmark
-                    icon={Code}
-                    title="Advanced & debug"
-                    hint="Support view"
-                  />
-                  <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
-                    <CardHeader className="bg-muted/30 border-b border-border/40">
-                      <CardTitle className="text-base">
-                        Advanced & debug
-                      </CardTitle>
-                      <CardDescription>
-                        Keep it collapsed by default for a cleaner overview.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-6 space-y-5">
-                      <div className="text-sm text-muted-foreground">
-                        Use when troubleshooting schema mismatch, auth, routing
-                        or decoding.
-                      </div>
-
-                      <Collapsible
-                        open={rawConnectionOpen}
-                        onOpenChange={setRawConnectionOpen}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="text-sm font-medium">
-                            Raw connection config
-                          </div>
-                          <CollapsibleTrigger asChild>
-                            <Button variant="outline" size="sm">
-                              {rawConnectionOpen ? "Hide JSON" : "Show JSON"}
-                            </Button>
-                          </CollapsibleTrigger>
-                        </div>
-                        <CollapsibleContent className="mt-3">
-                          <JsonBlock value={stream.connectionConfig} />
-                        </CollapsibleContent>
-                      </Collapsible>
-                    </CardContent>
-                  </Card>
-                </SectionFrame>
-
-                {/* Quick Actions */}
-                <Card className="rounded-xl shadow-sm border-border/60 bg-card">
-                  <CardHeader className="pb-4">
-                    <CardTitle className="text-base">Quick Actions</CardTitle>
-                    <CardDescription>
-                      Shortcuts for common operational tasks.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                      <Button
-                        variant="outline"
-                        className="h-20 flex flex-col gap-2 hover:border-primary/50 hover:bg-primary/5"
-                      >
-                        <Search size={20} />
-                        Search
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="h-20 flex flex-col gap-2 hover:border-primary/50 hover:bg-primary/5"
-                      >
-                        <Send size={20} />
-                        Publish
-                      </Button>
-                      {isVendor(stream.type, VENDOR_META.POSTGRES) ? (
-                        <Button
-                          variant="outline"
-                          className={`h-20 flex flex-col gap-2 ${streamVendor.buttonAccent}`}
-                        >
-                          <Terminal size={20} />
-                          SQL Explorer
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          className="h-20 flex flex-col gap-2 opacity-50"
-                          disabled
-                        >
-                          <Terminal size={20} />
-                          SQL Explorer
-                        </Button>
-                      )}
-                      <Button
-                        variant="outline"
-                        className="h-20 flex flex-col gap-2 opacity-50 cursor-not-allowed"
-                        disabled
-                      >
-                        <Activity size={20} />
-                        Stats (Soon)
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Right sticky column (not observed by IntersectionObserver) */}
-              <div className="space-y-6 sticky top-[140px] self-start">
-                <SectionFrame id="connection" active={active === "connection"}>
-                  <SectionLandmark
-                    icon={PlugZap}
-                    title="Connection context"
-                    hint="Sticky card"
-                  />
-                  <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
-                    <CardHeader className="bg-muted/30 border-b border-border/40">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <CardTitle className="text-base">
-                            Connection context
-                          </CardTitle>
-                          <CardDescription>
-                            Always visible while you scroll.
-                          </CardDescription>
-                        </div>
-                        <VendorIcon
-                          type={stream.connectionType}
-                          className="w-5 h-5"
-                        />
-                      </div>
-                    </CardHeader>
-                    <CardContent className="p-6 space-y-5 text-sm">
-                      <div className="flex justify-between items-center h-6">
-                        <span className="text-muted-foreground text-[10px] uppercase tracking-wider">
-                          Type
-                        </span>
-                        <StreamTypeBadge type={stream.connectionType} />
-                      </div>
-
-                      <Separator />
-
-                      <ConnectionConfigMini config={stream.connectionConfig} />
-
-                      <div className="pt-2">
-                        <Button
-                          variant="secondary"
-                          className="w-full gap-2 font-medium"
-                          asChild
-                        >
-                          <Link href={`/connections/${stream.connectionId}`}>
-                            Open Connection Details <ExternalLink size={14} />
-                          </Link>
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </SectionFrame>
-
-                <Card className="rounded-xl border-dashed border-border/60 bg-muted/5 opacity-70">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
-                      <Cpu size={14} /> Live Metrics
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="text-xs text-muted-foreground pb-6">
-                    Real-time throughput and latency metrics will appear here in
-                    a future update.
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* Messages */}
-          <TabsContent value="messages">
-            <Card className="min-h-[420px] flex items-center justify-center rounded-xl border-dashed border-border bg-muted/5">
-              <div className="text-center space-y-3">
-                <div className="bg-background border border-border w-12 h-12 rounded-full flex items-center justify-center mx-auto shadow-sm">
-                  <Search size={24} className="text-muted-foreground" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-medium">Message Explorer</h3>
-                  <p className="text-muted-foreground text-sm max-w-sm mx-auto mt-1">
-                    Connect to <b>{stream.technicalName}</b> to browse live
-                    messages.
-                  </p>
-                </div>
-                <Button className="mt-4">Connect & Browse</Button>
-              </div>
-            </Card>
-          </TabsContent>
-
-          {/* Vendor Panel */}
-          <TabsContent value="vendor">
-            <Card className="rounded-xl border-border/60">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings2 className="w-5 h-5" />
-                  {stream.type} Specific Settings
-                </CardTitle>
-                <CardDescription>
-                  Advanced configuration for {stream.technicalName}.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="min-h-[220px] flex items-center justify-center bg-muted/10">
-                <div className="text-sm text-muted-foreground italic">
-                  Extended controls for {stream.type} will be implemented here.
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
-    </div>
+    </>
   );
 }
 
