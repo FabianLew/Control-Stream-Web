@@ -1,6 +1,6 @@
+// /components/stream/EditStreamDialog.tsx
 "use client";
 
-import * as React from "react";
 import type { UnifiedStreamDto, EditStreamCommand } from "@/types/stream";
 
 import {
@@ -29,17 +29,6 @@ export function EditStreamDialog({
 }: Props) {
   if (!stream) return null;
 
-  const initialValues: Partial<any> = {
-    name: stream.name ?? "",
-    type: stream.type,
-    connectionId: stream.connectionId,
-    technicalName: stream.technicalName ?? "",
-    correlationKeyType: stream.correlationKeyType,
-    correlationKeyName: stream.correlationKeyName ?? "",
-    vendorConfig: stream.vendorConfig,
-    decoding: stream.decoding ?? { schemaSource: "NONE", formatHint: "AUTO" },
-  };
-
   const submit = async (payload: EditStreamCommand) => {
     await onSave(stream.id, payload);
     onOpenChange(false);
@@ -47,16 +36,7 @@ export function EditStreamDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="
-          w-[calc(100vw-2rem)]
-          max-w-[860px]
-          h-[90vh]
-          p-0
-          overflow-y-auto
-        "
-      >
-        {/* Sticky header */}
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-[860px] h-[90vh] p-0 overflow-y-auto">
         <div className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur px-6 py-4">
           <DialogHeader className="space-y-1">
             <div className="flex items-start justify-between gap-4">
@@ -77,12 +57,10 @@ export function EditStreamDialog({
           </DialogHeader>
         </div>
 
-        {/* Content */}
         <div className="px-6 py-6">
           <StreamForm
             mode="edit"
             stream={stream}
-            initialValues={initialValues}
             navigateAfterSubmit={false}
             onSubmit={submit}
           />

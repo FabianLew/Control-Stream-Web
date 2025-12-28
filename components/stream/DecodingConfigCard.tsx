@@ -3,11 +3,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { UseFormReturn } from "react-hook-form";
+import type { UseFormReturn } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-  CreateStreamFormValues,
   schemaSourceSchema,
   payloadFormatHintSchema,
   schemaRegistryAuthTypeSchema,
@@ -61,9 +60,9 @@ type Props = {
   form: UseFormReturn<StreamFormValues>;
 };
 
-function ensureSchemaRegistryDefaults(
-  current: CreateStreamFormValues["decoding"]["schemaRegistry"]
-) {
+const NONE_OPTION = "__NONE__";
+
+function ensureSchemaRegistryDefaults(current: any) {
   return {
     url: current?.url ?? "",
     authType: (current?.authType ?? "NONE") as SchemaRegistryAuthType,
@@ -72,9 +71,7 @@ function ensureSchemaRegistryDefaults(
   };
 }
 
-function ensureProtoDefaults(
-  current: CreateStreamFormValues["decoding"]["protoFiles"]
-) {
+function ensureProtoDefaults(current: any) {
   return {
     bundleId: current?.bundleId ?? "",
     fileGlob: current?.fileGlob ?? "**/*.proto",
@@ -84,9 +81,7 @@ function ensureProtoDefaults(
   };
 }
 
-function ensureAvroDefaults(
-  current: CreateStreamFormValues["decoding"]["avroFiles"]
-) {
+function ensureAvroDefaults(current: any) {
   return {
     bundleId: current?.bundleId ?? "",
     fileGlob: current?.fileGlob ?? "**/*.avsc",
@@ -98,13 +93,86 @@ function bundleLabel(b: SchemaBundleDto) {
   return `${b.bundleId} · ${b.fileCount} files · ${shortSha}`;
 }
 
+function safeEnum<T extends string>(
+  schema: any,
+  value: unknown,
+  fallback: T
+): T {
+  const parsed = schema.safeParse(value);
+  return parsed.success ? (parsed.data as T) : fallback;
+}
+
 export function DecodingConfigCard({ form }: Props) {
   const queryClient = useQueryClient();
-  const decoding = form.watch("decoding");
-  const schemaSource = decoding?.schemaSource as SchemaSource | undefined;
-  const formatHint = decoding?.formatHint as PayloadFormatHint | undefined;
 
-  const decodingEnabled = (schemaSource ?? "NONE") !== "NONE";
+  // watch only what we need
+  const schemaSourceRaw = form.watch("decoding.schemaSource");
+  const formatHintRaw = form.watch("decoding.formatHint");
+
+  const schemaSourceValue = safeEnum<SchemaSource>(
+    schemaSourceSchema,
+    schemaSourceRaw,
+    "NONE"
+  );
+
+  const formatHintValue = safeEnum<PayloadFormatHint>(
+    payloadFormatHintSchema,
+    formatHintRaw,
+    "AUTO"
+  );
+
+  // ✅ CRITICAL: keep RHF values in sync with safe enums (fixes "Invalid option..." forever)
+  React.useEffect(() => {
+    if (schemaSourceRaw !== schemaSourceValue) {
+      form.setValue("decoding.schemaSource", schemaSourceValue, {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schemaSourceRaw, schemaSourceValue]);
+
+  React.useEffect(() => {
+    if (formatHintRaw !== formatHintValue) {
+      form.setValue("decoding.formatHint", formatHintValue, {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formatHintRaw, formatHintValue]);
+
+  // nested objects
+  const schemaRegistry = form.watch("decoding.schemaRegistry");
+  const protoFiles = form.watch("decoding.protoFiles");
+  const avroFiles = form.watch("decoding.avroFiles");
+
+  const decodingEnabled = schemaSourceValue !== "NONE";
+
+  // if NONE -> clear junk configs
+  React.useEffect(() => {
+    if (schemaSourceValue !== "NONE") return;
+
+    const hasJunk =
+      !!form.getValues("decoding.schemaRegistry") ||
+      !!form.getValues("decoding.protoFiles") ||
+      !!form.getValues("decoding.avroFiles");
+
+    if (!hasJunk) return;
+
+    form.setValue("decoding.schemaRegistry", undefined, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue("decoding.protoFiles", undefined, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue("decoding.avroFiles", undefined, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+  }, [schemaSourceValue, form]);
 
   const bundlesQuery = useQuery({
     queryKey: ["schema-bundles"],
@@ -119,12 +187,18 @@ export function DecodingConfigCard({ form }: Props) {
       );
       queryClient.invalidateQueries({ queryKey: ["schema-bundles"] });
 
-      // UX: po uploadzie automatycznie ustaw bundleId w zależności od trybu
-      const fh = (form.getValues("decoding.formatHint") ??
-        "AUTO") as PayloadFormatHint;
+      const src = safeEnum<SchemaSource>(
+        schemaSourceSchema,
+        form.getValues("decoding.schemaSource"),
+        "NONE"
+      );
+      if (src !== "FILES") return;
 
-      if ((form.getValues("decoding.schemaSource") ?? "NONE") !== "FILES")
-        return;
+      const fh = safeEnum<PayloadFormatHint>(
+        payloadFormatHintSchema,
+        form.getValues("decoding.formatHint"),
+        "AUTO"
+      );
 
       if (fh === "PROTO") {
         form.setValue(
@@ -133,34 +207,46 @@ export function DecodingConfigCard({ form }: Props) {
             ...ensureProtoDefaults(form.getValues("decoding.protoFiles")),
             bundleId: created.bundleId,
           },
-          { shouldDirty: true }
+          { shouldDirty: true, shouldValidate: true }
         );
-      } else if (fh === "AVRO") {
+        form.setValue("decoding.avroFiles", undefined, {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+        return;
+      }
+
+      if (fh === "AVRO") {
         form.setValue(
           "decoding.avroFiles",
           {
             ...ensureAvroDefaults(form.getValues("decoding.avroFiles")),
             bundleId: created.bundleId,
           },
-          { shouldDirty: true }
+          { shouldDirty: true, shouldValidate: true }
         );
-      } else {
-        // AUTO: ustaw PROTO jeśli puste; w przeciwnym razie AVRO
-        const proto = form.getValues("decoding.protoFiles");
-        const avro = form.getValues("decoding.avroFiles");
-        if (!proto?.bundleId) {
-          form.setValue(
-            "decoding.protoFiles",
-            { ...ensureProtoDefaults(proto), bundleId: created.bundleId },
-            { shouldDirty: true }
-          );
-        } else if (!avro?.bundleId) {
-          form.setValue(
-            "decoding.avroFiles",
-            { ...ensureAvroDefaults(avro), bundleId: created.bundleId },
-            { shouldDirty: true }
-          );
-        }
+        form.setValue("decoding.protoFiles", undefined, {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+        return;
+      }
+
+      // AUTO: fill first empty slot
+      const proto = form.getValues("decoding.protoFiles");
+      const avro = form.getValues("decoding.avroFiles");
+      if (!proto?.bundleId) {
+        form.setValue(
+          "decoding.protoFiles",
+          { ...ensureProtoDefaults(proto), bundleId: created.bundleId },
+          { shouldDirty: true, shouldValidate: true }
+        );
+      } else if (!avro?.bundleId) {
+        form.setValue(
+          "decoding.avroFiles",
+          { ...ensureAvroDefaults(avro), bundleId: created.bundleId },
+          { shouldDirty: true, shouldValidate: true }
+        );
       }
     },
     onError: (e: any) => toast.error(e?.message ?? "Upload failed"),
@@ -183,97 +269,120 @@ export function DecodingConfigCard({ form }: Props) {
   };
 
   const setSchemaSource = (value: SchemaSource) => {
-    form.setValue("decoding.schemaSource", value, { shouldDirty: true });
+    form.setValue("decoding.schemaSource", value, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
 
     if (value === "NONE") {
       form.setValue("decoding.schemaRegistry", undefined, {
         shouldDirty: true,
+        shouldValidate: true,
       });
-      form.setValue("decoding.protoFiles", undefined, { shouldDirty: true });
-      form.setValue("decoding.avroFiles", undefined, { shouldDirty: true });
+      form.setValue("decoding.protoFiles", undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      form.setValue("decoding.avroFiles", undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
       return;
     }
 
     if (value === "SCHEMA_REGISTRY") {
       form.setValue(
         "decoding.schemaRegistry",
-        ensureSchemaRegistryDefaults(decoding?.schemaRegistry),
-        { shouldDirty: true }
+        ensureSchemaRegistryDefaults(form.getValues("decoding.schemaRegistry")),
+        { shouldDirty: true, shouldValidate: true }
       );
-      form.setValue("decoding.protoFiles", undefined, { shouldDirty: true });
-      form.setValue("decoding.avroFiles", undefined, { shouldDirty: true });
+      form.setValue("decoding.protoFiles", undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      form.setValue("decoding.avroFiles", undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
       return;
     }
 
     // FILES
-    form.setValue("decoding.schemaRegistry", undefined, { shouldDirty: true });
+    form.setValue("decoding.schemaRegistry", undefined, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
 
-    const fh = (formatHint ?? "AUTO") as PayloadFormatHint;
+    const fh = safeEnum<PayloadFormatHint>(
+      payloadFormatHintSchema,
+      form.getValues("decoding.formatHint"),
+      "AUTO"
+    );
+
     if (fh === "PROTO") {
       form.setValue(
         "decoding.protoFiles",
-        ensureProtoDefaults(decoding?.protoFiles),
-        { shouldDirty: true }
+        ensureProtoDefaults(form.getValues("decoding.protoFiles")),
+        { shouldDirty: true, shouldValidate: true }
       );
-      form.setValue("decoding.avroFiles", undefined, { shouldDirty: true });
-    } else if (fh === "AVRO") {
-      form.setValue(
-        "decoding.avroFiles",
-        ensureAvroDefaults(decoding?.avroFiles),
-        { shouldDirty: true }
-      );
-      form.setValue("decoding.protoFiles", undefined, { shouldDirty: true });
-    } else {
-      // AUTO: pozwalamy na oba (opcjonalnie)
-      form.setValue(
-        "decoding.protoFiles",
-        ensureProtoDefaults(decoding?.protoFiles),
-        { shouldDirty: true }
-      );
-      form.setValue(
-        "decoding.avroFiles",
-        ensureAvroDefaults(decoding?.avroFiles),
-        { shouldDirty: true }
-      );
+      form.setValue("decoding.avroFiles", undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      return;
     }
+
+    if (fh === "AVRO") {
+      form.setValue(
+        "decoding.avroFiles",
+        ensureAvroDefaults(form.getValues("decoding.avroFiles")),
+        { shouldDirty: true, shouldValidate: true }
+      );
+      form.setValue("decoding.protoFiles", undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      return;
+    }
+
+    // AUTO: keep optional
   };
 
   const setFormatHint = (value: PayloadFormatHint) => {
-    form.setValue("decoding.formatHint", value, { shouldDirty: true });
+    form.setValue("decoding.formatHint", value, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
 
-    if ((schemaSource ?? "NONE") !== "FILES") return;
+    if (schemaSourceValue !== "FILES") return;
 
     if (value === "PROTO") {
       form.setValue(
         "decoding.protoFiles",
-        ensureProtoDefaults(decoding?.protoFiles),
-        { shouldDirty: true }
+        ensureProtoDefaults(form.getValues("decoding.protoFiles")),
+        { shouldDirty: true, shouldValidate: true }
       );
-      form.setValue("decoding.avroFiles", undefined, { shouldDirty: true });
+      form.setValue("decoding.avroFiles", undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
       return;
     }
 
     if (value === "AVRO") {
       form.setValue(
         "decoding.avroFiles",
-        ensureAvroDefaults(decoding?.avroFiles),
-        { shouldDirty: true }
+        ensureAvroDefaults(form.getValues("decoding.avroFiles")),
+        { shouldDirty: true, shouldValidate: true }
       );
-      form.setValue("decoding.protoFiles", undefined, { shouldDirty: true });
+      form.setValue("decoding.protoFiles", undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
       return;
     }
 
-    // AUTO: oba (opcjonalnie)
-    form.setValue(
-      "decoding.protoFiles",
-      ensureProtoDefaults(decoding?.protoFiles),
-      { shouldDirty: true }
-    );
-    form.setValue(
-      "decoding.avroFiles",
-      ensureAvroDefaults(decoding?.avroFiles),
-      { shouldDirty: true }
-    );
+    // AUTO: keep optional
   };
 
   const schemaSourceOptions = schemaSourceSchema.options;
@@ -281,11 +390,8 @@ export function DecodingConfigCard({ form }: Props) {
   const authOptions = schemaRegistryAuthTypeSchema.options;
 
   const errors = form.formState.errors;
-
   const schemaRegistryAuthType =
-    (decoding?.schemaRegistry?.authType as
-      | SchemaRegistryAuthType
-      | undefined) ?? "NONE";
+    (schemaRegistry?.authType as SchemaRegistryAuthType | undefined) ?? "NONE";
 
   const bundles = bundlesQuery.data ?? [];
 
@@ -321,16 +427,15 @@ export function DecodingConfigCard({ form }: Props) {
       </CardHeader>
 
       <CardContent className="space-y-6">
-        {/* schema source + format hint */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
               Schema Source
             </Label>
             <Select
-              value={(schemaSource ?? "NONE") as SchemaSource}
+              value={schemaSourceValue}
               onValueChange={(v) => setSchemaSource(v as SchemaSource)}
-              disabled={!decodingEnabled && (schemaSource ?? "NONE") === "NONE"}
+              disabled={!decodingEnabled}
             >
               <SelectTrigger className="bg-background">
                 <SelectValue placeholder="Select schema source..." />
@@ -355,7 +460,7 @@ export function DecodingConfigCard({ form }: Props) {
 
             {errors.decoding?.schemaSource && (
               <p className="text-destructive text-xs">
-                {errors.decoding.schemaSource.message as string}
+                {(errors.decoding as any)?.schemaSource?.message as string}
               </p>
             )}
           </div>
@@ -365,8 +470,9 @@ export function DecodingConfigCard({ form }: Props) {
               Format Hint
             </Label>
             <Select
-              value={(formatHint ?? "AUTO") as PayloadFormatHint}
+              value={formatHintValue}
               onValueChange={(v) => setFormatHint(v as PayloadFormatHint)}
+              disabled={!decodingEnabled}
             >
               <SelectTrigger className="bg-background">
                 <SelectValue placeholder="Select format..." />
@@ -382,7 +488,7 @@ export function DecodingConfigCard({ form }: Props) {
 
             {errors.decoding?.formatHint && (
               <p className="text-destructive text-xs">
-                {errors.decoding.formatHint.message as string}
+                {(errors.decoding as any)?.formatHint?.message as string}
               </p>
             )}
           </div>
@@ -390,8 +496,7 @@ export function DecodingConfigCard({ form }: Props) {
 
         <Separator />
 
-        {/* SCHEMA REGISTRY */}
-        {(schemaSource ?? "NONE") === "SCHEMA_REGISTRY" && (
+        {schemaSourceValue === "SCHEMA_REGISTRY" && (
           <div className="space-y-4 animate-in fade-in">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Globe size={16} className="text-muted-foreground" />
@@ -402,25 +507,26 @@ export function DecodingConfigCard({ form }: Props) {
               <div className="md:col-span-2 space-y-2">
                 <Label className="text-xs text-muted-foreground">URL</Label>
                 <Input
-                  value={decoding?.schemaRegistry?.url ?? ""}
+                  value={schemaRegistry?.url ?? ""}
                   onChange={(e) =>
                     form.setValue(
                       "decoding.schemaRegistry",
                       {
-                        ...ensureSchemaRegistryDefaults(
-                          decoding?.schemaRegistry
-                        ),
+                        ...ensureSchemaRegistryDefaults(schemaRegistry),
                         url: e.target.value,
                       },
-                      { shouldDirty: true }
+                      { shouldDirty: true, shouldValidate: true }
                     )
                   }
                   placeholder="http://schema-registry:8081"
                   className="bg-background font-mono text-sm"
                 />
-                {errors.decoding?.schemaRegistry?.url && (
+                {(errors.decoding as any)?.schemaRegistry?.url && (
                   <p className="text-destructive text-xs">
-                    {errors.decoding.schemaRegistry.url.message as string}
+                    {
+                      (errors.decoding as any).schemaRegistry.url
+                        .message as string
+                    }
                   </p>
                 )}
               </div>
@@ -435,12 +541,10 @@ export function DecodingConfigCard({ form }: Props) {
                     form.setValue(
                       "decoding.schemaRegistry",
                       {
-                        ...ensureSchemaRegistryDefaults(
-                          decoding?.schemaRegistry
-                        ),
+                        ...ensureSchemaRegistryDefaults(schemaRegistry),
                         authType: v as SchemaRegistryAuthType,
                       },
-                      { shouldDirty: true }
+                      { shouldDirty: true, shouldValidate: true }
                     )
                   }
                 >
@@ -464,25 +568,23 @@ export function DecodingConfigCard({ form }: Props) {
                       Username
                     </Label>
                     <Input
-                      value={decoding?.schemaRegistry?.username ?? ""}
+                      value={schemaRegistry?.username ?? ""}
                       onChange={(e) =>
                         form.setValue(
                           "decoding.schemaRegistry",
                           {
-                            ...ensureSchemaRegistryDefaults(
-                              decoding?.schemaRegistry
-                            ),
+                            ...ensureSchemaRegistryDefaults(schemaRegistry),
                             username: e.target.value,
                           },
-                          { shouldDirty: true }
+                          { shouldDirty: true, shouldValidate: true }
                         )
                       }
                       className="bg-background"
                     />
-                    {errors.decoding?.schemaRegistry?.username && (
+                    {(errors.decoding as any)?.schemaRegistry?.username && (
                       <p className="text-destructive text-xs">
                         {
-                          errors.decoding.schemaRegistry.username
+                          (errors.decoding as any).schemaRegistry.username
                             .message as string
                         }
                       </p>
@@ -495,25 +597,23 @@ export function DecodingConfigCard({ form }: Props) {
                     </Label>
                     <Input
                       type="password"
-                      value={decoding?.schemaRegistry?.password ?? ""}
+                      value={schemaRegistry?.password ?? ""}
                       onChange={(e) =>
                         form.setValue(
                           "decoding.schemaRegistry",
                           {
-                            ...ensureSchemaRegistryDefaults(
-                              decoding?.schemaRegistry
-                            ),
+                            ...ensureSchemaRegistryDefaults(schemaRegistry),
                             password: e.target.value,
                           },
-                          { shouldDirty: true }
+                          { shouldDirty: true, shouldValidate: true }
                         )
                       }
                       className="bg-background"
                     />
-                    {errors.decoding?.schemaRegistry?.password && (
+                    {(errors.decoding as any)?.schemaRegistry?.password && (
                       <p className="text-destructive text-xs">
                         {
-                          errors.decoding.schemaRegistry.password
+                          (errors.decoding as any).schemaRegistry.password
                             .message as string
                         }
                       </p>
@@ -525,60 +625,57 @@ export function DecodingConfigCard({ form }: Props) {
           </div>
         )}
 
-        {/* FILES */}
-        {(schemaSource ?? "NONE") === "FILES" && (
+        {schemaSourceValue === "FILES" && (
           <div className="space-y-4 animate-in fade-in">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Folder size={16} className="text-muted-foreground" />
-                Schema Bundles (ZIP)
-              </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Folder size={16} className="text-muted-foreground" />
+                  Schema Bundles (ZIP)
+                </div>
 
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={pickZip}
-                  disabled={uploadMutation.isPending}
-                >
-                  <Upload size={14} />
-                  Upload ZIP
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={pickZip}
+                    disabled={uploadMutation.isPending}
+                  >
+                    <Upload size={14} />
+                    Upload ZIP
+                  </Button>
 
-                <Button
-                  asChild
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="gap-2"
-                >
-                  <Link href="/schema-bundles">
-                    Manage bundles
-                    <ExternalLink size={14} />
-                  </Link>
-                </Button>
+                  <Button
+                    asChild
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <Link href="/schema-bundles">
+                      Manage bundles
+                      <ExternalLink size={14} />
+                    </Link>
+                  </Button>
+                </div>
               </div>
             </div>
 
-            {/* PROTO */}
-            {(formatHint ?? "AUTO") === "PROTO" && (
+            {formatHintValue === "PROTO" && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2 space-y-2">
                   <Label className="text-xs text-muted-foreground">
                     Proto bundle
                   </Label>
                   <Select
-                    value={decoding?.protoFiles?.bundleId ?? ""}
+                    value={protoFiles?.bundleId ?? ""}
                     onValueChange={(v) =>
                       form.setValue(
                         "decoding.protoFiles",
-                        {
-                          ...ensureProtoDefaults(decoding?.protoFiles),
-                          bundleId: v,
-                        },
-                        { shouldDirty: true }
+                        { ...ensureProtoDefaults(protoFiles), bundleId: v },
+                        { shouldDirty: true, shouldValidate: true }
                       )
                     }
                   >
@@ -601,9 +698,12 @@ export function DecodingConfigCard({ form }: Props) {
                       ))}
                     </SelectContent>
                   </Select>
-                  {errors.decoding?.protoFiles?.bundleId && (
+                  {(errors.decoding as any)?.protoFiles?.bundleId && (
                     <p className="text-destructive text-xs">
-                      {errors.decoding.protoFiles.bundleId.message as string}
+                      {
+                        (errors.decoding as any).protoFiles.bundleId
+                          .message as string
+                      }
                     </p>
                   )}
                 </div>
@@ -613,15 +713,15 @@ export function DecodingConfigCard({ form }: Props) {
                     fileGlob
                   </Label>
                   <Input
-                    value={decoding?.protoFiles?.fileGlob ?? "**/*.proto"}
+                    value={protoFiles?.fileGlob ?? "**/*.proto"}
                     onChange={(e) =>
                       form.setValue(
                         "decoding.protoFiles",
                         {
-                          ...ensureProtoDefaults(decoding?.protoFiles),
+                          ...ensureProtoDefaults(protoFiles),
                           fileGlob: e.target.value,
                         },
-                        { shouldDirty: true }
+                        { shouldDirty: true, shouldValidate: true }
                       )
                     }
                     className="bg-background font-mono text-sm"
@@ -633,15 +733,15 @@ export function DecodingConfigCard({ form }: Props) {
                     typeHeaderName
                   </Label>
                   <Input
-                    value={decoding?.protoFiles?.typeHeaderName ?? ""}
+                    value={protoFiles?.typeHeaderName ?? ""}
                     onChange={(e) =>
                       form.setValue(
                         "decoding.protoFiles",
                         {
-                          ...ensureProtoDefaults(decoding?.protoFiles),
+                          ...ensureProtoDefaults(protoFiles),
                           typeHeaderName: e.target.value,
                         },
-                        { shouldDirty: true }
+                        { shouldDirty: true, shouldValidate: true }
                       )
                     }
                     placeholder="X-Message-Type"
@@ -654,15 +754,15 @@ export function DecodingConfigCard({ form }: Props) {
                     fixedMessageFullName
                   </Label>
                   <Input
-                    value={decoding?.protoFiles?.fixedMessageFullName ?? ""}
+                    value={protoFiles?.fixedMessageFullName ?? ""}
                     onChange={(e) =>
                       form.setValue(
                         "decoding.protoFiles",
                         {
-                          ...ensureProtoDefaults(decoding?.protoFiles),
+                          ...ensureProtoDefaults(protoFiles),
                           fixedMessageFullName: e.target.value,
                         },
-                        { shouldDirty: true }
+                        { shouldDirty: true, shouldValidate: true }
                       )
                     }
                     placeholder="com.acme.events.OrderCreated"
@@ -675,15 +775,15 @@ export function DecodingConfigCard({ form }: Props) {
                     typeHeaderValuePrefix
                   </Label>
                   <Input
-                    value={decoding?.protoFiles?.typeHeaderValuePrefix ?? ""}
+                    value={protoFiles?.typeHeaderValuePrefix ?? ""}
                     onChange={(e) =>
                       form.setValue(
                         "decoding.protoFiles",
                         {
-                          ...ensureProtoDefaults(decoding?.protoFiles),
+                          ...ensureProtoDefaults(protoFiles),
                           typeHeaderValuePrefix: e.target.value,
                         },
-                        { shouldDirty: true }
+                        { shouldDirty: true, shouldValidate: true }
                       )
                     }
                     placeholder="com.acme."
@@ -693,23 +793,19 @@ export function DecodingConfigCard({ form }: Props) {
               </div>
             )}
 
-            {/* AVRO */}
-            {(formatHint ?? "AUTO") === "AVRO" && (
+            {formatHintValue === "AVRO" && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2 space-y-2">
                   <Label className="text-xs text-muted-foreground">
                     Avro bundle
                   </Label>
                   <Select
-                    value={decoding?.avroFiles?.bundleId ?? ""}
+                    value={avroFiles?.bundleId ?? ""}
                     onValueChange={(v) =>
                       form.setValue(
                         "decoding.avroFiles",
-                        {
-                          ...ensureAvroDefaults(decoding?.avroFiles),
-                          bundleId: v,
-                        },
-                        { shouldDirty: true }
+                        { ...ensureAvroDefaults(avroFiles), bundleId: v },
+                        { shouldDirty: true, shouldValidate: true }
                       )
                     }
                   >
@@ -732,9 +828,12 @@ export function DecodingConfigCard({ form }: Props) {
                       ))}
                     </SelectContent>
                   </Select>
-                  {errors.decoding?.avroFiles?.bundleId && (
+                  {(errors.decoding as any)?.avroFiles?.bundleId && (
                     <p className="text-destructive text-xs">
-                      {errors.decoding.avroFiles.bundleId.message as string}
+                      {
+                        (errors.decoding as any).avroFiles.bundleId
+                          .message as string
+                      }
                     </p>
                   )}
                 </div>
@@ -744,15 +843,15 @@ export function DecodingConfigCard({ form }: Props) {
                     fileGlob
                   </Label>
                   <Input
-                    value={decoding?.avroFiles?.fileGlob ?? "**/*.avsc"}
+                    value={avroFiles?.fileGlob ?? "**/*.avsc"}
                     onChange={(e) =>
                       form.setValue(
                         "decoding.avroFiles",
                         {
-                          ...ensureAvroDefaults(decoding?.avroFiles),
+                          ...ensureAvroDefaults(avroFiles),
                           fileGlob: e.target.value,
                         },
-                        { shouldDirty: true }
+                        { shouldDirty: true, shouldValidate: true }
                       )
                     }
                     className="bg-background font-mono text-sm"
@@ -761,8 +860,7 @@ export function DecodingConfigCard({ form }: Props) {
               </div>
             )}
 
-            {/* AUTO: allow both optional */}
-            {(formatHint ?? "AUTO") === "AUTO" && (
+            {formatHintValue === "AUTO" && (
               <div className="space-y-4">
                 <div className="text-xs text-muted-foreground flex items-start gap-2">
                   <Info size={14} className="mt-0.5" />
@@ -776,23 +874,29 @@ export function DecodingConfigCard({ form }: Props) {
                       Proto bundle (optional)
                     </Label>
                     <Select
-                      value={decoding?.protoFiles?.bundleId ?? ""}
-                      onValueChange={(v) =>
+                      value={
+                        protoFiles?.bundleId ? protoFiles.bundleId : NONE_OPTION
+                      }
+                      onValueChange={(v) => {
+                        if (v === NONE_OPTION) {
+                          form.setValue("decoding.protoFiles", undefined, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          });
+                          return;
+                        }
                         form.setValue(
                           "decoding.protoFiles",
-                          {
-                            ...ensureProtoDefaults(decoding?.protoFiles),
-                            bundleId: v,
-                          },
-                          { shouldDirty: true }
-                        )
-                      }
+                          { ...ensureProtoDefaults(protoFiles), bundleId: v },
+                          { shouldDirty: true, shouldValidate: true }
+                        );
+                      }}
                     >
                       <SelectTrigger className="bg-background">
                         <SelectValue placeholder="Select bundle..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">(none)</SelectItem>
+                        <SelectItem value={NONE_OPTION}>(none)</SelectItem>
                         {bundles.map((b) => (
                           <SelectItem key={b.bundleId} value={b.bundleId}>
                             <span className="font-mono text-xs">
@@ -809,23 +913,29 @@ export function DecodingConfigCard({ form }: Props) {
                       Avro bundle (optional)
                     </Label>
                     <Select
-                      value={decoding?.avroFiles?.bundleId ?? ""}
-                      onValueChange={(v) =>
+                      value={
+                        avroFiles?.bundleId ? avroFiles.bundleId : NONE_OPTION
+                      }
+                      onValueChange={(v) => {
+                        if (v === NONE_OPTION) {
+                          form.setValue("decoding.avroFiles", undefined, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          });
+                          return;
+                        }
                         form.setValue(
                           "decoding.avroFiles",
-                          {
-                            ...ensureAvroDefaults(decoding?.avroFiles),
-                            bundleId: v,
-                          },
-                          { shouldDirty: true }
-                        )
-                      }
+                          { ...ensureAvroDefaults(avroFiles), bundleId: v },
+                          { shouldDirty: true, shouldValidate: true }
+                        );
+                      }}
                     >
                       <SelectTrigger className="bg-background">
                         <SelectValue placeholder="Select bundle..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">(none)</SelectItem>
+                        <SelectItem value={NONE_OPTION}>(none)</SelectItem>
                         {bundles.map((b) => (
                           <SelectItem key={b.bundleId} value={b.bundleId}>
                             <span className="font-mono text-xs">
@@ -840,9 +950,9 @@ export function DecodingConfigCard({ form }: Props) {
               </div>
             )}
 
-            {(formatHint ?? "AUTO") !== "PROTO" &&
-              (formatHint ?? "AUTO") !== "AVRO" &&
-              (formatHint ?? "AUTO") !== "AUTO" && (
+            {formatHintValue !== "PROTO" &&
+              formatHintValue !== "AVRO" &&
+              formatHintValue !== "AUTO" && (
                 <div className="text-xs text-muted-foreground flex items-start gap-2">
                   <Info size={14} className="mt-0.5" />
                   For file-based schemas choose{" "}

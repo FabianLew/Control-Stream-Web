@@ -43,68 +43,6 @@ export const createConnectionSchema = z.object({
 
 export type CreateConnectionFormValues = z.infer<typeof createConnectionSchema>;
 
-export const decodingSchema = z.object({
-  schemaSource: z.enum(["SCHEMA_REGISTRY", "FILES", "NONE"]),
-  formatHint: z.enum(["AUTO", "JSON", "AVRO", "PROTO", "TEXT", "BINARY"]),
-  schemaRegistry: z
-    .object({
-      url: z.string().min(1),
-      authType: z.enum(["NONE", "BASIC"]),
-      username: z.string().optional(),
-      password: z.string().optional(),
-    })
-    .optional(),
-
-  protoFiles: z
-    .object({
-      bundleId: z.string().min(1),
-      fileGlob: z.string().optional(),
-      fixedMessageFullName: z.string().optional(),
-      typeHeaderName: z.string().optional(),
-      typeHeaderValuePrefix: z.string().optional(),
-    })
-    .optional(),
-
-  avroFiles: z
-    .object({
-      bundleId: z.string().min(1),
-      fileGlob: z.string().optional(),
-    })
-    .optional(),
-});
-
-const kafkaVendorSchema = z.object({
-  vendor: z.literal("KAFKA"),
-  topic: z.string().optional(),
-  consumerGroupId: z.string().optional(),
-  correlationHeader: z.string().optional(),
-});
-
-const rabbitVendorSchema = z.object({
-  vendor: z.literal("RABBIT"),
-  queue: z.string().optional(),
-  exchange: z.string().optional(),
-  routingKey: z.string().optional(),
-  prefetchCount: z.number().int().positive().optional(),
-  shadowQueueEnabled: z.boolean(), // wymagane!
-  shadowQueueName: z.string().nullable().optional(),
-  correlationHeader: z.string().optional(),
-});
-
-const postgresVendorSchema = z.object({
-  vendor: z.literal("POSTGRES"),
-  schema: z.string().optional(),
-  table: z.string().optional(),
-  correlationColumn: z.string().optional(),
-  timeColumn: z.string().optional(),
-});
-
-const streamVendorConfigSchema = z.union([
-  kafkaVendorSchema,
-  rabbitVendorSchema,
-  postgresVendorSchema,
-]);
-
 export const schemaSourceSchema = z.enum(["SCHEMA_REGISTRY", "FILES", "NONE"]);
 export const payloadFormatHintSchema = z.enum([
   "AUTO",
@@ -164,6 +102,18 @@ export const payloadDecodingConfigSchema = z
     avroFiles: avroFilesConfigSchema.optional(),
   })
   .superRefine((val, ctx) => {
+    if (val.schemaSource === "NONE") {
+      if (val.schemaRegistry || val.protoFiles || val.avroFiles) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["schemaSource"],
+          message:
+            "When Schema Source is NONE, all decoding configs must be empty",
+        });
+      }
+      return;
+    }
+
     if (val.schemaSource === "SCHEMA_REGISTRY") {
       if (!val.schemaRegistry?.url) {
         ctx.addIssue({
@@ -172,53 +122,76 @@ export const payloadDecodingConfigSchema = z
           message: "Schema Registry config is required",
         });
       }
+      if (val.protoFiles || val.avroFiles) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["schemaSource"],
+          message: "Schema Registry mode cannot use file configs",
+        });
+      }
+      return;
     }
 
-    if (val.schemaSource === "FILES") {
-      if (val.formatHint === "PROTO") {
-        if (!val.protoFiles?.bundleId) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["protoFiles", "bundleId"],
-            message: "Proto bundleId is required",
-          });
-        }
-      }
-
-      if (val.formatHint === "AVRO") {
-        if (!val.avroFiles?.bundleId) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["avroFiles", "bundleId"],
-            message: "Avro bundleId is required",
-          });
-        }
-      }
-
-      if (val.formatHint === "AUTO") {
-        // w AUTO oba są opcjonalne, ale jeśli podane, to muszą być niepuste
-        if (val.protoFiles && !val.protoFiles.bundleId) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["protoFiles", "bundleId"],
-            message: "Proto bundleId cannot be empty",
-          });
-        }
-        if (val.avroFiles && !val.avroFiles.bundleId) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["avroFiles", "bundleId"],
-            message: "Avro bundleId cannot be empty",
-          });
-        }
-      }
+    // FILES
+    if (val.schemaRegistry) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["schemaSource"],
+        message: "Files mode cannot use schemaRegistry config",
+      });
     }
+
+    if (val.formatHint === "PROTO" && !val.protoFiles?.bundleId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["protoFiles", "bundleId"],
+        message: "Proto bundleId is required",
+      });
+    }
+
+    if (val.formatHint === "AVRO" && !val.avroFiles?.bundleId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["avroFiles", "bundleId"],
+        message: "Avro bundleId is required",
+      });
+    }
+
+    // AUTO: both optional, but if provided must be non-empty (already enforced by .min(1))
   });
 
-// (opcjonalnie) eksport typu:
-export type PayloadDecodingFormValues = z.infer<
-  typeof payloadDecodingConfigSchema
->;
+const kafkaVendorSchema = z.object({
+  vendor: z.literal("KAFKA"),
+  topic: z.string().optional(),
+  consumerGroupId: z.string().optional(),
+  correlationHeader: z.string().optional(),
+});
+
+const rabbitVendorSchema = z.object({
+  vendor: z.literal("RABBIT"),
+  queue: z.string().optional(),
+  exchange: z.string().optional(),
+  routingKey: z.string().optional(),
+  prefetchCount: z.number().int().positive().optional(),
+  shadowQueueEnabled: z.boolean(), // required
+  shadowQueueName: z.string().nullable().optional(),
+  correlationHeader: z.string().optional(),
+});
+
+const postgresVendorSchema = z.object({
+  vendor: z.literal("POSTGRES"),
+  schema: z.string().optional(),
+  table: z.string().optional(),
+  correlationColumn: z.string().optional(),
+  timeColumn: z.string().optional(),
+});
+
+const streamVendorConfigSchema = z.union([
+  kafkaVendorSchema,
+  rabbitVendorSchema,
+  postgresVendorSchema,
+]);
+
 const streamBaseSchema = z.object({
   name: z.string().min(2),
   type: z.enum(["KAFKA", "RABBIT", "POSTGRES"]),
@@ -227,23 +200,12 @@ const streamBaseSchema = z.object({
   correlationKeyType: z.enum(["HEADER", "COLUMN"]),
   correlationKeyName: z.string().min(1),
   vendorConfig: streamVendorConfigSchema,
-  decoding: decodingSchema,
+  decoding: payloadDecodingConfigSchema, // ✅ only one decoding schema
 });
 
 export const createStreamSchema = streamBaseSchema;
+export const editStreamSchema = streamBaseSchema;
 
-export const editStreamSchema = streamBaseSchema
-  .extend({
-    // tutaj ewentualnie możesz poluzować minimalnie rzeczy, ale ja bym NIE poluzował na start
-    // np. name: z.string().min(1) -> ale to wtedy rozwali spójność jeśli create jest min(2)
-  })
-  .superRefine((val, ctx) => {
-    // jeśli chcesz – dodatkowa logika dla edit (ale raczej niepotrzebna)
-    // ważne: correlationKeyName jest już min(1), więc nie trzeba tego walidować drugi raz
-  });
-
-export const streamFormSchema = z.union([createStreamSchema, editStreamSchema]);
-
+export type StreamFormValues = z.input<typeof streamBaseSchema>;
 export type CreateStreamFormValues = z.input<typeof createStreamSchema>;
 export type EditStreamFormValues = z.input<typeof editStreamSchema>;
-export type StreamFormValues = z.input<typeof streamFormSchema>;
