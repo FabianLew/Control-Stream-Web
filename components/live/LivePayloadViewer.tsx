@@ -6,6 +6,17 @@ import { EventPayloadViewerSheet } from "@/components/viewer/EventPayloadViewerS
 import type { ViewerMessage } from "@/types/viewer";
 import { isVendor, VENDOR_META } from "@/components/lib/vendors";
 
+type KafkaLiveEvent = Extract<LiveEventDto, { streamType: "KAFKA" }>;
+type RabbitLiveEvent = Extract<LiveEventDto, { streamType: "RABBIT" }>;
+type PostgresLiveEvent = Extract<LiveEventDto, { streamType: "POSTGRES" }>;
+
+const isKafkaEvent = (e: LiveEventDto): e is KafkaLiveEvent =>
+  isVendor(e.streamType, VENDOR_META.KAFKA);
+const isRabbitEvent = (e: LiveEventDto): e is RabbitLiveEvent =>
+  isVendor(e.streamType, VENDOR_META.RABBIT);
+const isPostgresEvent = (e: LiveEventDto): e is PostgresLiveEvent =>
+  isVendor(e.streamType, VENDOR_META.POSTGRES);
+
 function safeHeadersFromLive(event: LiveEventDto): Record<string, any> {
   // Live nie ma headers w kontrakcie – możemy w headers wkleić metadata + correlationId jako ułatwienie
   return {
@@ -26,13 +37,16 @@ export function LivePayloadViewer(props: {
     if (!e) return null;
 
     // messageId w live: zależy od vendorów — generujemy stabilny “synthetic id”
-    const syntheticId = isVendor(e.streamType, VENDOR_META.KAFKA)
-      ? `kafka:${e.metadata.topic}:${e.metadata.partition}:${e.metadata.offset}`
-      : isVendor(e.streamType, VENDOR_META.RABBIT)
-      ? `rabbit:${e.metadata.queue}:${e.metadata.deliveryTag}`
-      : `pg:${e.metadata.schema}.${e.metadata.table}:${String(
-          e.metadata.cursorValue
-        )}`;
+    let syntheticId = `e:${e.streamId}`;
+    if (isKafkaEvent(e)) {
+      syntheticId = `kafka:${e.metadata.topic}:${e.metadata.partition}:${e.metadata.offset}`;
+    } else if (isRabbitEvent(e)) {
+      syntheticId = `rabbit:${e.metadata.queue}:${e.metadata.deliveryTag}`;
+    } else if (isPostgresEvent(e)) {
+      syntheticId = `pg:${e.metadata.schema}.${e.metadata.table}:${String(
+        e.metadata.cursorValue
+      )}`;
+    }
 
     const payload = e.payload.payload ?? "";
     const payloadPretty = e.payload.payloadPretty ?? null;
