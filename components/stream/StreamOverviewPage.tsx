@@ -10,21 +10,18 @@ import {
   Terminal,
   ExternalLink,
   Code,
-  Server,
-  Database,
   Activity,
-  Layers,
   Settings2,
   Copy,
   Hash,
   Cpu,
-  AudioWaveform,
   IdCard,
   SlidersHorizontal,
   Braces,
   PlugZap,
   ChevronUp,
 } from "lucide-react";
+import { getVendorMeta } from "@/components/lib/vendors";
 
 // UI Components
 import { Button } from "@/components/ui/button";
@@ -75,14 +72,9 @@ const VendorIcon = ({
   type: string;
   className?: string;
 }) => {
-  const t = type ? type.toUpperCase() : "";
-  if (t === "KAFKA")
-    return <AudioWaveform className={`text-purple-500 ${className}`} />;
-  if (t === "RABBIT")
-    return <Layers className={`text-orange-500 ${className}`} />;
-  if (t === "POSTGRES")
-    return <Database className={`text-blue-500 ${className}`} />;
-  return <Server className={`text-slate-500 ${className}`} />;
+  const vendor = getVendorMeta(type);
+  const Icon = vendor.icon;
+  return <Icon className={`${vendor.iconClass} ${className ?? ""}`} />;
 };
 
 // --- Section Nav ---
@@ -628,6 +620,7 @@ export function StreamOverviewPage({ streamId }: Props) {
     return (
       <div className="p-8 text-destructive">Failed to load stream data.</div>
     );
+  const streamVendor = getVendorMeta(stream.type);
 
   return (
     <div className="min-h-screen bg-background p-6 md:p-8 space-y-4">
@@ -929,7 +922,7 @@ export function StreamOverviewPage({ streamId }: Props) {
                       {stream.type === "POSTGRES" ? (
                         <Button
                           variant="outline"
-                          className="h-20 flex flex-col gap-2 hover:border-blue-500/50 hover:bg-blue-500/5 text-blue-600 dark:text-blue-400"
+                          className={`h-20 flex flex-col gap-2 ${streamVendor.buttonAccent}`}
                         >
                           <Terminal size={20} />
                           SQL Explorer

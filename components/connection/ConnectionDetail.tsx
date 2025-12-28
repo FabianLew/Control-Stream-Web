@@ -8,7 +8,6 @@ import {
   Activity,
   Server,
   Clock,
-  Database,
   Hash,
   Layers,
   PlayCircle,
@@ -55,6 +54,7 @@ import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
 import { KeyValueRow } from "@/components/shared/KeyValueRow";
 import { JsonBlock } from "@/components/shared/JsonBlock";
 import { CopyButton } from "@/components/shared/CopyButton";
+import { getVendorMeta } from "@/components/lib/vendors";
 
 // Types
 import type {
@@ -89,50 +89,6 @@ const testConnectionApi = async (
   if (!res.ok) throw new Error("Test failed");
   return res.json();
 };
-
-// --- UI helpers ---
-function vendorTone(type: string) {
-  const t = (type ?? "").toUpperCase();
-
-  if (t.includes("KAFKA")) {
-    return {
-      label: "KAFKA",
-      icon: Activity,
-      ring: "ring-purple-500/20",
-      fg: "text-purple-400",
-      bg: "bg-purple-500/10",
-      border: "border-purple-500/20",
-    };
-  }
-  if (t.includes("RABBIT")) {
-    return {
-      label: "RABBIT",
-      icon: Layers,
-      ring: "ring-orange-500/20",
-      fg: "text-orange-400",
-      bg: "bg-orange-500/10",
-      border: "border-orange-500/20",
-    };
-  }
-  if (t.includes("POSTGRES") || t.includes("DB")) {
-    return {
-      label: "POSTGRES",
-      icon: Database,
-      ring: "ring-blue-500/20",
-      fg: "text-blue-400",
-      bg: "bg-blue-500/10",
-      border: "border-blue-500/20",
-    };
-  }
-  return {
-    label: "GENERIC",
-    icon: Server,
-    ring: "ring-slate-500/20",
-    fg: "text-slate-300",
-    bg: "bg-slate-500/10",
-    border: "border-slate-500/20",
-  };
-}
 
 function SectionLandmark({
   icon: Icon,
@@ -204,8 +160,8 @@ export const ConnectionDetail = ({ id }: Props) => {
   if (!connection)
     return <div className="p-8 text-destructive">Connection not found</div>;
 
-  const tone = vendorTone(String(connection.type));
-  const VendorIcon = tone.icon;
+  const vendor = getVendorMeta(String(connection.type));
+  const VendorIcon = vendor.icon;
 
   const hostPort = `${connection.host}:${connection.port}`;
   const checked = humanCheckedAt(connection.lastCheckedAt as any);
@@ -231,13 +187,13 @@ export const ConnectionDetail = ({ id }: Props) => {
             className={[
               "w-12 h-12 rounded-xl flex items-center justify-center border",
               "shadow-sm",
-              tone.bg,
-              tone.border,
-              tone.ring,
+              vendor.tone.bg,
+              vendor.tone.border,
+              vendor.tone.ring,
               "ring-1",
             ].join(" ")}
           >
-            <VendorIcon className={tone.fg} size={22} />
+            <VendorIcon className={vendor.tone.fg} size={22} />
           </div>
 
           <div className="space-y-2">
@@ -315,7 +271,7 @@ export const ConnectionDetail = ({ id }: Props) => {
                 <SectionLandmark
                   icon={Server}
                   title="Connection identity"
-                  hint={tone.label}
+                  hint={vendor.label}
                 />
                 <Card className="rounded-xl shadow-sm border-border/60 bg-card overflow-hidden">
                   <CardHeader className="bg-muted/30 border-b border-border/40">

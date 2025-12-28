@@ -51,13 +51,11 @@ import {
   Loader2,
   Sparkles,
   Activity,
-  Layers,
-  Database,
-  Server,
   FileJson,
   Save,
   Link as LinkIcon,
 } from "lucide-react";
+import { getVendorMeta, VENDOR_OPTIONS } from "@/components/lib/vendors";
 
 type ConnectionSummary = {
   id: string;
@@ -86,11 +84,9 @@ const DEFAULT_FORM_VALUES: StreamFormValues = {
 };
 
 const VendorIcon = ({ type }: { type: StreamType }) => {
-  if (type === "KAFKA") return <Activity className="text-purple-500 h-5 w-5" />;
-  if (type === "RABBIT") return <Layers className="text-orange-500 h-5 w-5" />;
-  if (type === "POSTGRES")
-    return <Database className="text-blue-500 h-5 w-5" />;
-  return <Server className="text-slate-500 h-5 w-5" />;
+  const vendor = getVendorMeta(type);
+  const Icon = vendor.icon;
+  return <Icon className={`${vendor.iconClass} h-5 w-5`} />;
 };
 
 function titleFromTechnical(technicalName: string) {
@@ -757,9 +753,11 @@ export function StreamForm({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="KAFKA">KAFKA</SelectItem>
-                    <SelectItem value="RABBIT">RABBIT</SelectItem>
-                    <SelectItem value="POSTGRES">POSTGRES</SelectItem>
+                    {VENDOR_OPTIONS.map((vendor) => (
+                      <SelectItem key={vendor.id} value={vendor.id}>
+                        {vendor.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

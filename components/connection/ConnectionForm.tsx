@@ -30,27 +30,20 @@ import { Separator } from "@/components/ui/separator";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
 import { handleInvalidSubmit } from "@/components/lib/formError";
 
+import { Loader2, Save, Info, Code, PenLine } from "lucide-react";
 import {
-  Loader2,
-  Save,
-  Activity,
-  Layers,
-  Database,
-  Server,
-  Info,
-  Code,
-  PenLine,
-} from "lucide-react";
+  getVendorMeta,
+  VENDOR_OPTIONS,
+  type KnownVendor,
+} from "@/components/lib/vendors";
 
-type ConnectionType = "KAFKA" | "RABBIT" | "POSTGRES";
+type ConnectionType = KnownVendor;
 
 type VendorIconProps = { type: ConnectionType };
 const VendorIcon = ({ type }: VendorIconProps) => {
-  if (type === "KAFKA") return <Activity className="text-purple-500 h-6 w-6" />;
-  if (type === "RABBIT") return <Layers className="text-orange-500 h-6 w-6" />;
-  if (type === "POSTGRES")
-    return <Database className="text-blue-500 h-6 w-6" />;
-  return <Server className="text-slate-500 h-6 w-6" />;
+  const vendor = getVendorMeta(type);
+  const Icon = vendor.icon;
+  return <Icon className={`${vendor.iconClass} h-6 w-6`} />;
 };
 
 type Mode = "create" | "edit";
@@ -327,11 +320,11 @@ export function ConnectionForm({
     });
   }, [selectedType, configHost, configPort, postgresDatabaseName, form]);
 
-  const vendorTitle = useMemo(() => {
-    if (selectedType === "POSTGRES") return "Database Configuration";
-    if (selectedType === "KAFKA") return "Cluster Configuration";
-    return "Broker Configuration";
-  }, [selectedType]);
+  const vendorMeta = useMemo(
+    () => getVendorMeta(selectedType),
+    [selectedType]
+  );
+  const vendorTitle = vendorMeta.connectionTitle;
 
   const handleTypeChange = (val: ConnectionType) => {
     const currentName = form.getValues("name");
@@ -460,9 +453,11 @@ export function ConnectionForm({
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="KAFKA">Apache Kafka</SelectItem>
-                    <SelectItem value="RABBIT">RabbitMQ</SelectItem>
-                    <SelectItem value="POSTGRES">PostgreSQL</SelectItem>
+                    {VENDOR_OPTIONS.map((vendor) => (
+                      <SelectItem key={vendor.id} value={vendor.id}>
+                        {vendor.displayName}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
 
@@ -490,16 +485,7 @@ export function ConnectionForm({
         <div className="lg:col-span-2 space-y-6">
           <Card className="border-border/60 shadow-sm relative overflow-hidden">
             <div
-              className={`absolute top-0 left-0 w-full h-1 
-                ${
-                  selectedType === "KAFKA"
-                    ? "bg-purple-500"
-                    : selectedType === "RABBIT"
-                    ? "bg-orange-500"
-                    : selectedType === "POSTGRES"
-                    ? "bg-blue-500"
-                    : "bg-slate-500"
-                }`}
+              className={`absolute top-0 left-0 w-full h-1 ${vendorMeta.headerBar}`}
             />
 
             <CardHeader className="pb-4">
@@ -511,7 +497,7 @@ export function ConnectionForm({
                   <CardTitle className="text-lg">{vendorTitle}</CardTitle>
                   <CardDescription>
                     {isEditMode ? "Update" : "Enter"} connection parameters for{" "}
-                    {selectedType.toLowerCase()}.
+                    {vendorMeta.displayName}.
                   </CardDescription>
                 </div>
               </div>

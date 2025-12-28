@@ -1,11 +1,12 @@
-'use client';
+"use client";
 
 import { UnifiedStreamDto } from '@/types/stream';
 import { Button } from "@/components/ui/button";
-import { Pencil, ArrowRight, Activity, Server, Database, Layers } from "lucide-react";
+import { Pencil, ArrowRight } from "lucide-react";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
 import Link from 'next/link';
 import { Badge } from "@/components/ui/badge";
+import { getVendorMeta } from "@/components/lib/vendors";
 
 interface StreamGridProps {
   streams: UnifiedStreamDto[];
@@ -15,9 +16,9 @@ interface StreamGridProps {
 
 // Helper do ikony (opcjonalnie, zależy co masz w DTO)
 const StreamIcon = ({ type }: { type: string }) => {
-    if (type?.includes('KAFKA')) return <Activity className="h-5 w-5 text-purple-500" />;
-    if (type?.includes('POSTGRES')) return <Database className="h-5 w-5 text-blue-500" />;
-    return <Layers className="h-5 w-5 text-slate-500" />;
+    const vendor = getVendorMeta(type);
+    const Icon = vendor.icon;
+    return <Icon className={`${vendor.iconClass} h-5 w-5`} />;
 };
 
 export function StreamGrid({ streams, isLoading, onEdit }: StreamGridProps) {
