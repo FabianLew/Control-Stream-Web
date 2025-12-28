@@ -105,7 +105,9 @@ function safeEnum<T extends string>(
 export function DecodingConfigCard({ form }: Props) {
   const queryClient = useQueryClient();
 
-  // watch only what we need
+  // IMPORTANT:
+  // - watch może być przez chwilę undefined przy reset/render
+  // - NIE zapisujemy fallbacków do form state "automatycznie"
   const schemaSourceRaw = form.watch("decoding.schemaSource");
   const formatHintRaw = form.watch("decoding.formatHint");
 
@@ -121,58 +123,39 @@ export function DecodingConfigCard({ form }: Props) {
     "AUTO"
   );
 
-  // ✅ CRITICAL: keep RHF values in sync with safe enums (fixes "Invalid option..." forever)
-  React.useEffect(() => {
-    if (schemaSourceRaw !== schemaSourceValue) {
-      form.setValue("decoding.schemaSource", schemaSourceValue, {
-        shouldDirty: false,
-        shouldValidate: true,
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schemaSourceRaw, schemaSourceValue]);
-
-  React.useEffect(() => {
-    if (formatHintRaw !== formatHintValue) {
-      form.setValue("decoding.formatHint", formatHintValue, {
-        shouldDirty: false,
-        shouldValidate: true,
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formatHintRaw, formatHintValue]);
-
-  // nested objects
+  // nested objects (mogą być undefined)
   const schemaRegistry = form.watch("decoding.schemaRegistry");
   const protoFiles = form.watch("decoding.protoFiles");
   const avroFiles = form.watch("decoding.avroFiles");
 
   const decodingEnabled = schemaSourceValue !== "NONE";
 
-  // if NONE -> clear junk configs
+  // remember last enabled source (so toggle ON doesn't force SCHEMA_REGISTRY always)
+  const lastEnabledSourceRef = React.useRef<SchemaSource>("SCHEMA_REGISTRY");
+  // ✅ keep RHF values valid, but DO NOT override transient undefined during reset
   React.useEffect(() => {
-    if (schemaSourceValue !== "NONE") return;
+    if (schemaSourceRaw === undefined) return; // do not fight StreamForm.reset()
+    const parsed = schemaSourceSchema.safeParse(schemaSourceRaw);
+    if (!parsed.success) {
+      form.setValue("decoding.schemaSource", "NONE", {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schemaSourceRaw]);
 
-    const hasJunk =
-      !!form.getValues("decoding.schemaRegistry") ||
-      !!form.getValues("decoding.protoFiles") ||
-      !!form.getValues("decoding.avroFiles");
-
-    if (!hasJunk) return;
-
-    form.setValue("decoding.schemaRegistry", undefined, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    form.setValue("decoding.protoFiles", undefined, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    form.setValue("decoding.avroFiles", undefined, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-  }, [schemaSourceValue, form]);
+  React.useEffect(() => {
+    if (formatHintRaw === undefined) return; // do not fight StreamForm.reset()
+    const parsed = payloadFormatHintSchema.safeParse(formatHintRaw);
+    if (!parsed.success) {
+      form.setValue("decoding.formatHint", "AUTO", {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formatHintRaw]);
 
   const bundlesQuery = useQuery({
     queryKey: ["schema-bundles"],
@@ -345,7 +328,7 @@ export function DecodingConfigCard({ form }: Props) {
       return;
     }
 
-    // AUTO: keep optional
+    // AUTO: keep optional, do not force-create empty objects
   };
 
   const setFormatHint = (value: PayloadFormatHint) => {
@@ -418,15 +401,23 @@ export function DecodingConfigCard({ form }: Props) {
             </Badge>
             <Switch
               checked={decodingEnabled}
-              onCheckedChange={(checked) =>
-                setSchemaSource(checked ? "SCHEMA_REGISTRY" : "NONE")
-              }
+              onCheckedChange={(checked) => {
+                if (checked) {
+                  // restore previous value if existed, do not force SCHEMA_REGISTRY
+                  setSchemaSource(
+                    lastEnabledSourceRef.current ?? "SCHEMA_REGISTRY"
+                  );
+                } else {
+                  setSchemaSource("NONE");
+                }
+              }}
             />
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-6">
+        {/* schema source + format hint */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
@@ -496,6 +487,7 @@ export function DecodingConfigCard({ form }: Props) {
 
         <Separator />
 
+        {/* SCHEMA REGISTRY */}
         {schemaSourceValue === "SCHEMA_REGISTRY" && (
           <div className="space-y-4 animate-in fade-in">
             <div className="flex items-center gap-2 text-sm font-medium">
@@ -625,6 +617,7 @@ export function DecodingConfigCard({ form }: Props) {
           </div>
         )}
 
+        {/* FILES */}
         {schemaSourceValue === "FILES" && (
           <div className="space-y-4 animate-in fade-in">
             <div className="space-y-2">
@@ -663,6 +656,7 @@ export function DecodingConfigCard({ form }: Props) {
               </div>
             </div>
 
+            {/* PROTO */}
             {formatHintValue === "PROTO" && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2 space-y-2">
@@ -793,6 +787,7 @@ export function DecodingConfigCard({ form }: Props) {
               </div>
             )}
 
+            {/* AVRO */}
             {formatHintValue === "AVRO" && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2 space-y-2">
@@ -860,6 +855,7 @@ export function DecodingConfigCard({ form }: Props) {
               </div>
             )}
 
+            {/* AUTO */}
             {formatHintValue === "AUTO" && (
               <div className="space-y-4">
                 <div className="text-xs text-muted-foreground flex items-start gap-2">

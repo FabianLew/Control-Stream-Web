@@ -9,6 +9,17 @@ import { CopyButton } from "@/components/shared/CopyButton";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
 import { isVendor, VENDOR_META } from "@/components/lib/vendors";
 
+type KafkaLiveEvent = Extract<LiveEventDto, { streamType: "KAFKA" }>;
+type RabbitLiveEvent = Extract<LiveEventDto, { streamType: "RABBIT" }>;
+type PostgresLiveEvent = Extract<LiveEventDto, { streamType: "POSTGRES" }>;
+
+const isKafkaEvent = (e: LiveEventDto): e is KafkaLiveEvent =>
+  isVendor(e.streamType, VENDOR_META.KAFKA);
+const isRabbitEvent = (e: LiveEventDto): e is RabbitLiveEvent =>
+  isVendor(e.streamType, VENDOR_META.RABBIT);
+const isPostgresEvent = (e: LiveEventDto): e is PostgresLiveEvent =>
+  isVendor(e.streamType, VENDOR_META.POSTGRES);
+
 function formatPreview(e: LiveEventDto) {
   const raw = e.payload.payloadPretty ?? e.payload.payload ?? "";
   if (e.payload.payloadFormat === "BINARY")
@@ -36,15 +47,18 @@ function formatTime(ts: string) {
  * - Postgres: schema/table/cursorValue
  */
 function liveEventKey(e: LiveEventDto) {
-  if (isVendor(e.streamType, VENDOR_META.KAFKA)) {
+  if (isKafkaEvent(e)) {
     return `k:${e.streamId}:${e.metadata.topic}:${e.metadata.partition}:${e.metadata.offset}`;
   }
-  if (isVendor(e.streamType, VENDOR_META.RABBIT)) {
+  if (isRabbitEvent(e)) {
     return `r:${e.streamId}:${e.metadata.queue}:${e.metadata.deliveryTag}`;
   }
-  return `p:${e.streamId}:${e.metadata.schema}.${e.metadata.table}:${String(
-    e.metadata.cursorValue
-  )}`;
+  if (isPostgresEvent(e)) {
+    return `p:${e.streamId}:${e.metadata.schema}.${e.metadata.table}:${String(
+      e.metadata.cursorValue
+    )}`;
+  }
+  return `undefined`;
 }
 
 export function LiveEventsTable(props: {
