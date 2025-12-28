@@ -61,6 +61,7 @@ import {
   isVendor,
   VENDOR_META,
 } from "@/components/lib/vendors";
+import { getConnectionsOverview } from "@/lib/api/connections";
 
 type ConnectionSummary = {
   id: string;
@@ -353,9 +354,8 @@ export function StreamForm({
 
   // load connections once
   useEffect(() => {
-    fetch("/api/connections/overview")
-      .then((res) => res.json())
-      .then((data) => setConnections(data))
+    getConnectionsOverview()
+      .then(setConnections)
       .catch(console.error)
       .finally(() => setIsLoadingConn(false));
   }, []);

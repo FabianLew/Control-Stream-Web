@@ -15,8 +15,8 @@ import { StreamGrid } from "@/components/stream/StreamGrid";
 import { EditStreamDialog } from "@/components/stream/EditStreamDialog";
 
 // API & Types
-import { getStreams, updateStreamCommand } from "@/components/lib/api/streams";
-import { getConnections } from "@/components/lib/api/connections";
+import { getStreams, updateStream } from "@/lib/api/streams";
+import { getConnections } from "@/lib/api/connections";
 import type { UnifiedStreamDto, EditStreamCommand } from "@/types/stream";
 
 export default function StreamsPage() {
@@ -47,7 +47,7 @@ export default function StreamsPage() {
 
   // --- MUTATION ---
   const updateMutation = useMutation({
-    mutationFn: updateStreamCommand, // { id, command }
+    mutationFn: updateStream, // { id, command }
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["streams"] });
       setIsEditOpen(false);

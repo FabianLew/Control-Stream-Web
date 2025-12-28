@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import type { LiveEventDto } from "@/components/lib/api/live";
+import type { LiveEventDto } from "@/types/live";
 import { EventPayloadViewerSheet } from "@/components/viewer/EventPayloadViewerSheet";
 import type { ViewerMessage } from "@/types/viewer";
 import { isVendor, VENDOR_META } from "@/components/lib/vendors";

@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ConnectionOverviewDto, ConnectionDto } from "@/types/connection";
-import { updateConnection } from "@/components/lib/api/connections";
+import {
+  getConnectionsOverview,
+  updateConnection,
+} from "@/lib/api/connections";
 import { Button } from "@/components/ui/button";
 import { Pencil, Server } from "lucide-react";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
@@ -18,13 +21,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
-// Fetcher
-const getConnectionsOverview = async (): Promise<ConnectionOverviewDto[]> => {
-  const res = await fetch("/api/connections/overview");
-  if (!res.ok) throw new Error("Failed to fetch connections");
-  return res.json();
-};
 
 export function ConnectionList() {
   const queryClient = useQueryClient();

@@ -3,7 +3,7 @@
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { LiveEventDto } from "@/components/lib/api/live";
+import type { LiveEventDto } from "@/types/live";
 import { Badge } from "@/components/ui/badge";
 import { CopyButton } from "@/components/shared/CopyButton";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";

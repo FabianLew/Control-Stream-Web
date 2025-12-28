@@ -10,6 +10,11 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ConnectionDto } from "@/types/connection";
+import {
+  getConnection,
+  updateConnectionById,
+} from "@/lib/api/connections";
+import type { CreateConnectionFormValues } from "@/components/lib/schemas";
 
 import { ConnectionForm } from "@/components/connection/ConnectionForm";
 
@@ -17,12 +22,6 @@ export interface EditConnectionDialogProps {
   connectionId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}
-
-async function fetchConnection(id: string): Promise<ConnectionDto> {
-  const res = await fetch(`/api/connections/${id}`);
-  if (!res.ok) throw new Error("Failed to fetch connection");
-  return res.json();
 }
 
 export function EditConnectionDialog({
@@ -41,7 +40,7 @@ export function EditConnectionDialog({
     setErr(null);
     setConnection(null);
 
-    fetchConnection(connectionId)
+    getConnection(connectionId)
       .then(setConnection)
       .catch((e) => setErr(e instanceof Error ? e.message : "Unknown error"))
       .finally(() => setLoading(false));
@@ -57,18 +56,9 @@ export function EditConnectionDialog({
     };
   }, [connection]);
 
-  const submit = async (payload: any) => {
+  const submit = async (payload: CreateConnectionFormValues) => {
     if (!connectionId) return;
-
-    const res = await fetch(`/api/connections/${connectionId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      throw new Error("Failed to update connection");
-    }
+    await updateConnectionById(connectionId, payload);
   };
 
   return (

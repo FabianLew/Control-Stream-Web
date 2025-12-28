@@ -50,6 +50,7 @@ import { KeyValueRow } from "@/components/shared/KeyValueRow";
 import { JsonBlock } from "@/components/shared/JsonBlock";
 import { CopyButton } from "@/components/shared/CopyButton";
 import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
+import { deleteStream, getStreamOverview } from "@/lib/api/streams";
 
 // Types
 import type {
@@ -69,15 +70,6 @@ import type {
 interface Props {
   streamId: string;
 }
-
-// --- Fetcher ---
-const fetchStreamOverview = async (
-  streamId: string
-): Promise<StreamOverviewDto> => {
-  const res = await fetch(`/api/streams/${streamId}/overview`);
-  if (!res.ok) throw new Error("Failed to fetch stream details");
-  return res.json();
-};
 
 // --- Helpers ---
 const VendorIcon = ({
@@ -634,7 +626,7 @@ export function StreamOverviewPage({ streamId }: Props) {
     isError,
   } = useQuery({
     queryKey: ["stream-overview", streamId],
-    queryFn: () => fetchStreamOverview(streamId),
+    queryFn: () => getStreamOverview(streamId),
   });
 
   const { active, setActive } = useActiveSection(observedSections);
@@ -646,10 +638,7 @@ export function StreamOverviewPage({ streamId }: Props) {
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const deleteMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(`/api/streams/${streamId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete stream");
-    },
+    mutationFn: () => deleteStream(streamId),
     onSuccess: () => {
       toast.success("Stream deleted successfully");
 

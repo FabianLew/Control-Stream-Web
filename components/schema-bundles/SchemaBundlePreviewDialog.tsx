@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { getSchemaBundleDetails } from "@/components/lib/api/schemaBundles";
+import { getSchemaBundleDetails } from "@/lib/api/schemaBundles";
 
 type Props = {
   bundleId: string | null;

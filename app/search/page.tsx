@@ -7,6 +7,7 @@ import { SegmentedSearchView } from "@/components/search/SegmentedSearchView";
 import { useSearch } from "@/hooks/useSearch";
 import { SearchFilters, StreamOption } from "@/types";
 import { FilterMultiSelect } from "@/components/ui/filter-multi-select";
+import { getStreamNames } from "@/lib/api/streams";
 import {
   AlertCircle,
   Search,
@@ -80,8 +81,7 @@ export default function SearchPage() {
   // --- 1. ŁADOWANIE STANU PRZY STARCIE ---
   useEffect(() => {
     setAreStreamsLoading(true);
-    fetch("/api/streams/names")
-      .then((res) => (res.ok ? res.json() : []))
+    getStreamNames()
       .then(setAllStreams)
       .catch(console.error)
       .finally(() => setAreStreamsLoading(false));

@@ -8,13 +8,13 @@ import type {
   LiveEventDto,
   UpdateLiveSessionRequest,
   UUID,
-} from "@/components/lib/api/live";
+} from "@/types/live";
 import {
   createLiveSession,
   deleteLiveSession,
   liveEventsUrl,
   updateLiveSession,
-} from "@/components/lib/api/live";
+} from "@/lib/api/live";
 
 type LiveStatus =
   | "idle"

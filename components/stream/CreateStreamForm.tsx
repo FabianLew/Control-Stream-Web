@@ -4,18 +4,11 @@ import React from "react";
 import { StreamForm } from "@/components/stream/StreamForm";
 import type { CreateStreamCommand } from "@/types/stream";
 import { handleValidSubmit } from "@/components/lib/formError";
+import { createStream } from "@/lib/api/streams";
 
 export function CreateStreamForm() {
   const onSubmit = async (payload: CreateStreamCommand) => {
-    const res = await fetch("/api/streams", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      throw new Error("Failed to create stream");
-    }
+    await createStream(payload);
 
     handleValidSubmit({
       title: "Stream Created Successfully",

@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { SearchFilters, SearchMessageRow, SearchResult } from "@/types";
+import type { SearchFilters, SearchMessageRow } from "@/types";
+import { searchMessages } from "@/lib/api/search";
 
 interface SearchState {
   // --- Stan Danych ---
@@ -22,30 +23,6 @@ interface SearchState {
   reset: () => void;
 }
 
-// Helper do budowania URL (przeniesiony z hooka)
-const buildQuery = (currentFilters: SearchFilters, pageNum: number) => {
-  const params = new URLSearchParams();
-  if (currentFilters.correlationId)
-    params.append("correlationId", currentFilters.correlationId);
-  if (currentFilters.contentContains)
-    params.append("contentContains", currentFilters.contentContains);
-
-  if (currentFilters.streamIds?.length) {
-    params.append("streamIds", currentFilters.streamIds.join(","));
-  }
-  if (currentFilters.streamTypes?.length) {
-    params.append("streamTypes", currentFilters.streamTypes.join(","));
-  }
-
-  if (currentFilters.fromTime)
-    params.append("fromTime", currentFilters.fromTime);
-  if (currentFilters.toTime) params.append("toTime", currentFilters.toTime);
-
-  params.append("page", pageNum.toString());
-  params.append("size", "50");
-
-  return params.toString();
-};
 
 export const useSearchStore = create<SearchState>((set, get) => ({
   // Wartości początkowe
@@ -80,14 +57,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     const nextPage = isLoadMore ? page + 1 : 0;
 
     try {
-      const query = buildQuery(filters, nextPage);
-      const res = await fetch(`/api/search?${query}`);
-
-      if (!res.ok) {
-        throw new Error(`Search failed: ${res.statusText}`);
-      }
-
-      const data: SearchResult = await res.json();
+      const data = await searchMessages(filters, nextPage);
       const newMessages = data.messages || [];
 
       set((state) => ({

@@ -10,7 +10,7 @@ import {
   listSchemaBundles as getSchemaBundles,
   uploadSchemaBundleZip,
   deleteSchemaBundle,
-} from "@/components/lib/api/schemaBundles";
+} from "@/lib/api/schemaBundles";
 
 import { Button } from "@/components/ui/button";
 import {

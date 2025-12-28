@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { LiveEventDto, UUID } from "@/components/lib/api/live";
+import type { LiveEventDto, UUID } from "@/types/live";
 import { useLiveSession } from "@/components/live/useLiveSession";
 import { useLiveStreams } from "@/components/live/useLiveStreams";
 

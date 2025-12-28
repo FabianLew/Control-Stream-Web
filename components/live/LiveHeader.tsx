@@ -4,7 +4,7 @@ import type React from "react";
 import { useMemo } from "react";
 
 import type { LiveFiltersState } from "@/components/live/LiveView";
-import type { UUID } from "@/components/lib/api/live";
+import type { UUID } from "@/types/live";
 import { FilterMultiSelect } from "@/components/ui/filter-multi-select";
 
 import { Button } from "@/components/ui/button";

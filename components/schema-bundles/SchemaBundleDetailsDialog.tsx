@@ -5,7 +5,7 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FileText, Hash, Calendar, Boxes } from "lucide-react";
 
-import { getSchemaBundleDetails } from "@/components/lib/api/schemaBundles";
+import { getSchemaBundleDetails } from "@/lib/api/schemaBundles";
 
 import {
   Dialog,

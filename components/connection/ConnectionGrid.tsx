@@ -16,14 +16,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
 import { EditConnectionDialog } from "./EditConnectionDialog";
 import { ConnectionOverviewDto, ConnectionDto } from "@/types/connection";
-import { updateConnection } from "@/components/lib/api/connections";
+import {
+  getConnectionsOverview,
+  updateConnection,
+} from "@/lib/api/connections";
 import { ConnectionStatusBadge } from "./ConnectionStatusBadge";
-
-const getConnectionsOverview = async (): Promise<ConnectionOverviewDto[]> => {
-  const res = await fetch("/api/connections/overview");
-  if (!res.ok) throw new Error("Failed to fetch connections");
-  return res.json();
-};
 
 export function ConnectionGrid() {
   const queryClient = useQueryClient();

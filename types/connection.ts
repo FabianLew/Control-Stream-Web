@@ -44,6 +44,11 @@ export interface ConnectionDto {
   updatedAt: string;
 }
 
+export type ConnectionUpsertPayload = Omit<
+  ConnectionDto,
+  "id" | "createdAt" | "updatedAt"
+>;
+
 export interface ConnectionOverviewDto {
   id: string;
   name: string;

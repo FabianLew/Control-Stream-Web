@@ -57,45 +57,22 @@ import { JsonBlock } from "@/components/shared/JsonBlock";
 import { CopyButton } from "@/components/shared/CopyButton";
 import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import { getVendorMeta } from "@/components/lib/vendors";
+import {
+  deleteConnection,
+  getConnectionOverview,
+  getConnectionStreams,
+  testConnection,
+} from "@/lib/api/connections";
 
 // Types
 import type {
   ConnectionOverviewDto,
   ConnectionStreamOverviewDto,
-  ConnectionTestResultDto,
 } from "@/types/connection";
 
 interface Props {
   id: string;
 }
-
-// --- API ---
-const fetchConnection = async (id: string): Promise<ConnectionOverviewDto> => {
-  const res = await fetch(`/api/connections/${id}/overview`);
-  if (!res.ok) throw new Error("Failed to fetch connection");
-  return res.json();
-};
-
-const fetchStreams = async (
-  id: string
-): Promise<ConnectionStreamOverviewDto[]> => {
-  const res = await fetch(`/api/streams/connection/${id}`);
-  if (!res.ok) throw new Error("Failed to fetch streams");
-  return res.json();
-};
-
-const testConnectionApi = async (
-  id: string
-): Promise<ConnectionTestResultDto> => {
-  const res = await fetch(`/api/connections/${id}/test`, { method: "POST" });
-  if (!res.ok) throw new Error("Test failed");
-  return res.json();
-};
-
-const deleteConnectionApi = async (id: string): Promise<void> => {
-  const res = await fetch(`/api/connections/${id}`, { method: "DELETE" });
-  if (!res.ok) throw new Error("Failed to delete connection");
-};
 
 function SectionLandmark({
   icon: Icon,
@@ -134,18 +111,20 @@ export const ConnectionDetail = ({ id }: Props) => {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const { data: connection, isLoading: isConnLoading } = useQuery({
+  const { data: connection, isLoading: isConnLoading } =
+    useQuery<ConnectionOverviewDto>({
     queryKey: ["connection", id],
-    queryFn: () => fetchConnection(id),
+    queryFn: () => getConnectionOverview(id),
   });
 
-  const { data: streams, isLoading: isStreamsLoading } = useQuery({
+  const { data: streams, isLoading: isStreamsLoading } =
+    useQuery<ConnectionStreamOverviewDto[]>({
     queryKey: ["connection-streams", id],
-    queryFn: () => fetchStreams(id),
+    queryFn: () => getConnectionStreams(id),
   });
 
   const testMutation = useMutation({
-    mutationFn: () => testConnectionApi(id),
+    mutationFn: () => testConnection(id),
     onSuccess: (result) => {
       queryClient.setQueryData(
         ["connection", id],
@@ -173,7 +152,7 @@ export const ConnectionDetail = ({ id }: Props) => {
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const deleteMutation = useMutation({
-    mutationFn: () => deleteConnectionApi(id),
+    mutationFn: () => deleteConnection(id),
     onSuccess: () => {
       toast.success("Connection deleted successfully");
       queryClient.invalidateQueries({ queryKey: ["connections"] });

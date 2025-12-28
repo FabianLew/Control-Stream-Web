@@ -23,7 +23,7 @@ import type { SchemaBundleDto } from "@/types/schema-bundle";
 import {
   listSchemaBundles as getSchemaBundles,
   uploadSchemaBundleZip,
-} from "@/components/lib/api/schemaBundles";
+} from "@/lib/api/schemaBundles";
 
 import {
   Card,

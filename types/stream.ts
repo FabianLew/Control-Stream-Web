@@ -1,46 +1,19 @@
 // /types/stream.ts
 import type { ConnectionConfigDto } from "./connection";
+import type { PayloadDecodingConfigDto } from "./decoding";
+
+export type {
+  SchemaSource,
+  PayloadFormatHint,
+  SchemaRegistryAuthType,
+  SchemaRegistryConfigDto,
+  ProtoFilesConfigDto,
+  AvroFilesConfigDto,
+  PayloadDecodingConfigDto,
+} from "./decoding";
+
 export type StreamType = "KAFKA" | "RABBIT" | "POSTGRES";
 export type CorrelationKeyType = "HEADER" | "COLUMN";
-
-export type SchemaSource = "SCHEMA_REGISTRY" | "FILES" | "NONE";
-export type PayloadFormatHint =
-  | "AUTO"
-  | "JSON"
-  | "AVRO"
-  | "PROTO"
-  | "TEXT"
-  | "BINARY";
-
-export type SchemaRegistryAuthType = "NONE" | "BASIC";
-
-export interface SchemaRegistryConfigDto {
-  url: string;
-  authType: SchemaRegistryAuthType;
-  username?: string;
-  password?: string;
-}
-
-export interface ProtoFilesConfigDto {
-  bundleId: string;
-  fileGlob?: string;
-  fixedMessageFullName?: string;
-  typeHeaderName?: string;
-  typeHeaderValuePrefix?: string;
-}
-
-export interface AvroFilesConfigDto {
-  bundleId: string;
-  fileGlob?: string;
-}
-
-export interface PayloadDecodingConfigDto {
-  schemaSource: SchemaSource;
-  formatHint: PayloadFormatHint;
-  schemaRegistry?: SchemaRegistryConfigDto;
-  protoFiles?: ProtoFilesConfigDto;
-  avroFiles?: AvroFilesConfigDto;
-}
 
 // --- vendor configs ---
 export type KafkaStreamVendorConfigDto = {

@@ -26,14 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
-export type SchemaBundleDto = {
-  bundleId: string;
-  sha256: string;
-  fileCount: number;
-  sizeBytes: number;
-  uploadedAt: string;
-};
+import type { SchemaBundleDto } from "@/types/schema-bundle";
 
 type Props = {
   value: string;
