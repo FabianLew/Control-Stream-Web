@@ -1,14 +1,24 @@
 import type { NextConfig } from "next";
 
-const apiBaseUrl = process.env.API_BASE_URL;
+console.log("[next.config] DEMO_MODE =", process.env.DEMO_MODE);
+console.log("[next.config] BACKEND_URL =", process.env.BACKEND_URL);
 
 const nextConfig: NextConfig = {
   async rewrites() {
-    if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") {
-      return []; // demo: obsługa w app/api/*
+    const demoMode =
+      (process.env.DEMO_MODE ?? "false").toLowerCase() === "true";
+
+    if (demoMode) {
+      return [];
     }
-    const apiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:8080";
-    return [{ source: "/api/:path*", destination: `${apiBaseUrl}/api/:path*` }];
+
+    const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8080";
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${backendUrl}/api/:path*`,
+      },
+    ];
   },
 };
 

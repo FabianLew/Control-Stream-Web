@@ -1,16 +1,25 @@
 import { NextResponse } from "next/server";
 import type { SchemaBundleDto } from "@/types/schema-bundle";
 import { demoSchemaBundles } from "@/lib/demo/demoData";
+import { isDemoModeEnabled, proxyToBackend } from "@/app/api/_proxy";
 
 function nowIso() {
   return new Date().toISOString();
 }
 
-export async function GET() {
-  return NextResponse.json(demoSchemaBundles);
+export async function GET(req: Request) {
+  if (isDemoModeEnabled()) {
+    return NextResponse.json(demoSchemaBundles);
+  }
+
+  return proxyToBackend(req, "/schema-bundles");
 }
 
 export async function POST(req: Request) {
+  if (!isDemoModeEnabled()) {
+    return proxyToBackend(req, "/schema-bundles");
+  }
+
   const form = await req.formData();
   const file = form.get("file");
 

@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { demoLiveBatches } from "@/lib/demo/demoData";
+import { isDemoModeEnabled, proxyToBackend } from "@/app/api/_proxy";
 
 export const runtime = "nodejs";
 
@@ -8,10 +9,14 @@ function sseLine(event: string, data: string) {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await context.params;
+  if (!isDemoModeEnabled()) {
+    return proxyToBackend(req, `/live/${sessionId}/events`);
+  }
+
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({
