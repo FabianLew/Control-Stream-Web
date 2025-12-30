@@ -4,15 +4,11 @@ const apiBaseUrl = process.env.API_BASE_URL;
 
 const nextConfig: NextConfig = {
   async rewrites() {
-    // Jeśli nie ustawisz env, traktujemy jako local dev
-    const destinationBase = apiBaseUrl ?? "http://localhost:8080";
-
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${destinationBase}/api/:path*`,
-      },
-    ];
+    if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") {
+      return []; // demo: obsługa w app/api/*
+    }
+    const apiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:8080";
+    return [{ source: "/api/:path*", destination: `${apiBaseUrl}/api/:path*` }];
   },
 };
 
