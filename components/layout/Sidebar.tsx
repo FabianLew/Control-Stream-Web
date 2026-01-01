@@ -27,12 +27,18 @@ export function Sidebar() {
       "
     >
       {/* Logo */}
-      <div className="mb-8 px-2 flex items-center gap-2">
-        <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center font-bold text-white">
+      <Link
+        href="/"
+        className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-muted/40 transition"
+      >
+        <div className="h-7 w-7 rounded-md bg-primary text-primary-foreground flex items-center justify-center font-bold">
           CS
         </div>
-        <span className="font-bold text-xl text-white">ControlStream</span>
-      </div>
+
+        <span className="font-semibold text-sm tracking-tight">
+          ControlStream
+        </span>
+      </Link>
 
       {/* Menu */}
       <nav className="space-y-1 flex-1">
