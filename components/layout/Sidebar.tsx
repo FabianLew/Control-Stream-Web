@@ -3,6 +3,7 @@
 import { Search, Network, Activity, Package, Cable } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { WorkspaceSwitcher } from "@/components/workspace/WorkspaceSwitcher";
 
 const navItems = [
   { name: "Live", href: "/live", icon: Cable },
@@ -35,7 +36,7 @@ export function Sidebar() {
           CS
         </div>
 
-        <span className="font-semibold text-sm tracking-tight">
+        <span className="font-semibold text-sm tracking-tight cursor-pointer hover:opacity-90">
           ControlStream
         </span>
       </Link>
@@ -63,6 +64,11 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      <div className="mt-auto border-t border-border pt-4 px-2 space-y-3">
+        <WorkspaceSwitcher />
+        <p className="text-xs text-text-secondary">v1.0.0 Alpha</p>
+      </div>
 
       {/* Footer */}
       <div className="mt-auto border-t border-border pt-4 px-2">
