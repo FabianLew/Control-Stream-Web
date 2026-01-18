@@ -46,6 +46,7 @@ import { Label } from "@/components/ui/label";
 
 import { DecodingConfigCard } from "@/components/stream/DecodingConfigCard";
 import { handleInvalidSubmit } from "@/components/lib/formError";
+import { RabbitProvisioningConfirmDialog } from "@/components/stream/RabbitProvisioningConfirmDialog";
 
 import {
   Loader2,
@@ -125,7 +126,7 @@ function toOptionalNumber(value: unknown): number | undefined {
 
 function normalizeCorrelationKeyType(
   streamType: StreamType,
-  raw: unknown
+  raw: unknown,
 ): "HEADER" | "COLUMN" {
   if (raw === "HEADER" || raw === "COLUMN") return raw;
   return isVendor(streamType, VENDOR_META.POSTGRES) ? "COLUMN" : "HEADER";
@@ -133,7 +134,7 @@ function normalizeCorrelationKeyType(
 
 function normalizeCorrelationKeyName(
   streamType: StreamType,
-  raw: unknown
+  raw: unknown,
 ): string {
   const value = toOptionalString(raw);
   if (value) return value;
@@ -192,7 +193,7 @@ function normalizeDecoding(input: any) {
             fixedMessageFullName: toOptionalString(proto.fixedMessageFullName),
             typeHeaderName: toOptionalString(proto.typeHeaderName),
             typeHeaderValuePrefix: toOptionalString(
-              proto.typeHeaderValuePrefix
+              proto.typeHeaderValuePrefix,
             ),
           }
         : undefined,
@@ -208,7 +209,7 @@ function normalizeDecoding(input: any) {
 
 function ensureVendorConfigForType(
   type: StreamType,
-  current?: StreamVendorConfigDto
+  current?: StreamVendorConfigDto,
 ): StreamVendorConfigDto {
   if (isVendor(type, VENDOR_META.KAFKA)) {
     if (current && isVendor(current.vendor, VENDOR_META.KAFKA)) return current;
@@ -236,7 +237,7 @@ function normalizeVendorConfig(
   type: StreamType,
   vendorConfig: StreamVendorConfigDto | undefined,
   technicalName: string,
-  correlationKeyName: string
+  correlationKeyName: string,
 ): StreamVendorConfigDto {
   const current = vendorConfig ?? ({} as any);
 
@@ -253,31 +254,32 @@ function normalizeVendorConfig(
   }
 
   if (isVendor(type, VENDOR_META.RABBIT)) {
-    const v =
-      isVendor(current.vendor, VENDOR_META.RABBIT)
-        ? current
-        : ({ vendor: "RABBIT", shadowQueueEnabled: false } as any);
+    const v = isVendor(current.vendor, VENDOR_META.RABBIT)
+      ? current
+      : ({ vendor: "RABBIT", shadowQueueEnabled: false } as any);
 
     return {
       vendor: "RABBIT",
-      queue: toOptionalString(v.queue) ?? toOptionalString(technicalName),
-      exchange: toOptionalString(v.exchange),
-      routingKey: toOptionalString(v.routingKey),
+      exchange: String(v.exchange ?? "").trim(), // required
+      routingKey: String(v.routingKey ?? "").trim(), // required
       prefetchCount: toOptionalNumber(v.prefetchCount),
-      shadowQueueEnabled: Boolean(v.shadowQueueEnabled),
+      shadowQueueEnabled: true,
       shadowQueueName:
         v.shadowQueueName == null
           ? undefined
           : toOptionalString(v.shadowQueueName),
       correlationHeader: toOptionalString(v.correlationHeader),
+      searchShadowTtlMs:
+        toOptionalNumber((v as any).searchShadowTtlMs) ?? undefined,
+      searchShadowMaxLength:
+        toOptionalNumber((v as any).searchShadowMaxLength) ?? undefined,
     } as any;
   }
 
   // POSTGRES
-  const v =
-    isVendor(current.vendor, VENDOR_META.POSTGRES)
-      ? current
-      : ({ vendor: "POSTGRES" } as any);
+  const v = isVendor(current.vendor, VENDOR_META.POSTGRES)
+    ? current
+    : ({ vendor: "POSTGRES" } as any);
   return {
     vendor: "POSTGRES",
     schema: toOptionalString(v.schema) ?? "public",
@@ -289,26 +291,26 @@ function normalizeVendorConfig(
 }
 
 function normalizeFormPayload(
-  data: StreamFormValues
+  data: StreamFormValues,
 ): CreateStreamCommand | EditStreamCommand {
   const name = (data.name ?? "").trim();
   const technical = (data.technicalName ?? "").trim();
 
   const correlationKeyType = normalizeCorrelationKeyType(
     data.type,
-    (data as any).correlationKeyType
+    (data as any).correlationKeyType,
   );
 
   const correlationKeyName = normalizeCorrelationKeyName(
     data.type,
-    (data as any).correlationKeyName
+    (data as any).correlationKeyName,
   );
 
   const normalizedVendor = normalizeVendorConfig(
     data.type,
     data.vendorConfig as any,
     technical,
-    correlationKeyName
+    correlationKeyName,
   );
 
   const normalizedDecoding = normalizeDecoding(data.decoding);
@@ -341,9 +343,15 @@ export function StreamForm({
 
   const [displayNameTouched, setDisplayNameTouched] = useState(false);
 
+  const [rabbitConfirmOpen, setRabbitConfirmOpen] = useState(false);
+  const pendingPayloadRef = useRef<
+    CreateStreamCommand | EditStreamCommand | null
+  >(null);
+  const rabbitConfirmAcknowledgedRef = useRef(false); // optional: don't ask twice in one form session
+
   const schema = useMemo(
     () => (mode === "edit" ? editStreamSchema : createStreamSchema),
-    [mode]
+    [mode],
   );
 
   const form = useForm<StreamFormValues>({
@@ -380,15 +388,15 @@ export function StreamForm({
         technicalName: stream.technicalName ?? "",
         correlationKeyType: normalizeCorrelationKeyType(
           stream.type,
-          (stream as any).correlationKeyType
+          (stream as any).correlationKeyType,
         ),
         correlationKeyName: normalizeCorrelationKeyName(
           stream.type,
-          (stream as any).correlationKeyName
+          (stream as any).correlationKeyName,
         ),
         vendorConfig: ensureVendorConfigForType(
           stream.type,
-          stream.vendorConfig
+          stream.vendorConfig,
         ) as any,
         decoding: normalizeDecoding(stream.decoding) as any,
       };
@@ -453,7 +461,7 @@ export function StreamForm({
       form.setValue(
         "vendorConfig",
         { vendor: "POSTGRES", schema: "public" } as any,
-        { shouldDirty: true, shouldValidate: true }
+        { shouldDirty: true, shouldValidate: true },
       );
     } else {
       form.setValue("correlationKeyType", "HEADER", {
@@ -470,7 +478,7 @@ export function StreamForm({
         form.setValue(
           "vendorConfig",
           { vendor: "RABBIT", shadowQueueEnabled: false } as any,
-          { shouldDirty: true, shouldValidate: true }
+          { shouldDirty: true, shouldValidate: true },
         );
       } else {
         form.setValue("vendorConfig", { vendor: "KAFKA" } as any, {
@@ -509,7 +517,7 @@ export function StreamForm({
    * Critical: keep decoding schema-valid when user turns it off (NONE).
    */
   const decodingSchemaSource = form.watch(
-    "decoding.schemaSource"
+    "decoding.schemaSource",
   ) as SchemaSource;
   const lastDecodingSchemaSourceRef = useRef<SchemaSource | null>(null);
 
@@ -582,7 +590,18 @@ export function StreamForm({
         return;
       }
 
-      await onSubmit(parsed.data as any);
+      const payload = parsed.data as any;
+
+      const isRabbitCreate = mode === "create" && payload.type === "RABBIT";
+
+      if (isRabbitCreate && !rabbitConfirmAcknowledgedRef.current) {
+        pendingPayloadRef.current = payload;
+        setRabbitConfirmOpen(true);
+        setIsSubmitting(false);
+        return;
+      }
+
+      await onSubmit(payload);
 
       if (navigateAfterSubmit) {
         router.push("/streams");
@@ -595,11 +614,35 @@ export function StreamForm({
     }
   };
 
+  const confirmRabbitProvisioning = async () => {
+    const pending = pendingPayloadRef.current;
+    if (!pending) return;
+
+    rabbitConfirmAcknowledgedRef.current = true;
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      await onSubmit(pending as any);
+
+      if (navigateAfterSubmit) {
+        router.push("/streams");
+        router.refresh();
+      }
+    } catch {
+      setError("Failed to save stream. Please check configuration.");
+    } finally {
+      pendingPayloadRef.current = null;
+      setIsSubmitting(false);
+    }
+  };
+
   const values = form.watch();
   const previewJson = useMemo(
     () => JSON.stringify(normalizeFormPayload(values), null, 2),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [values]
+    [values],
   );
 
   const showKafkaFields = isVendor(watchedType, VENDOR_META.KAFKA);
@@ -610,7 +653,7 @@ export function StreamForm({
 
   const correlationKeyTypeValue = normalizeCorrelationKeyType(
     watchedType,
-    form.watch("correlationKeyType")
+    form.watch("correlationKeyType"),
   );
 
   return (
@@ -619,7 +662,7 @@ export function StreamForm({
         handleInvalidSubmit(errors, {
           title: mode === "edit" ? "Stream not updated" : "Stream not created",
           description: "Please correct the highlighted fields and try again.",
-        })
+        }),
       )}
     >
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
@@ -777,8 +820,8 @@ export function StreamForm({
                   {isVendor(watchedType, VENDOR_META.KAFKA)
                     ? "Topic Name"
                     : isVendor(watchedType, VENDOR_META.RABBIT)
-                    ? "Queue Name"
-                    : "Table Name"}
+                      ? "Queue Name"
+                      : "Table Name"}
                 </Label>
                 <Input
                   value={form.watch("technicalName") ?? ""}
@@ -792,8 +835,8 @@ export function StreamForm({
                     isVendor(watchedType, VENDOR_META.KAFKA)
                       ? "e.g. orders.v1"
                       : isVendor(watchedType, VENDOR_META.RABBIT)
-                      ? "e.g. orders.queue"
-                      : "e.g. orders"
+                        ? "e.g. orders.queue"
+                        : "e.g. orders"
                   }
                   className="bg-background font-mono text-sm"
                 />
@@ -877,17 +920,114 @@ export function StreamForm({
               {showRabbitFields && (
                 <>
                   <Separator />
-                  <div className="space-y-3">
+
+                  <div className="space-y-4">
                     <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                       Rabbit Options
                     </Label>
 
+                    {/* Provisioning notice */}
+                    <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+                      <div className="font-medium text-foreground text-sm mb-1">
+                        RabbitMQ provisioning
+                      </div>
+                      <ul className="list-disc pl-5 space-y-1">
+                        <li>
+                          ControlStream may create <b>two shadow queues</b> for
+                          this stream: one for <b>Search</b> and one for{" "}
+                          <b>Live</b>.
+                        </li>
+                        <li>
+                          <b>Live</b> shadow queue uses fixed agent defaults and{" "}
+                          <b>never replays backlog</b> on connect.
+                        </li>
+                        <li>
+                          You can tune retention{" "}
+                          <b>only for Search shadow queue</b> below.
+                        </li>
+                      </ul>
+                    </div>
+
+                    {/* Exchange + Routing */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">
+                          Exchange *
+                        </Label>
+                        <Input
+                          value={toOptionalString(currentVendor.exchange) ?? ""}
+                          onChange={(e) => {
+                            const base = ensureVendorConfigForType(
+                              "RABBIT",
+                              form.getValues("vendorConfig") as any,
+                            ) as any;
+
+                            form.setValue(
+                              "vendorConfig",
+                              {
+                                ...base,
+                                vendor: "RABBIT",
+                                exchange: e.target.value,
+                              } as any,
+                              { shouldDirty: true, shouldValidate: true },
+                            );
+                          }}
+                          className="bg-background font-mono text-sm"
+                          placeholder="e.g. orders.exchange"
+                        />
+                        {form.getFieldState("vendorConfig.exchange").error ? (
+                          <p className="text-destructive text-xs">
+                            {form.getFieldState("vendorConfig.exchange").error
+                              ?.message ?? "Exchange is required"}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">
+                          Routing Key *
+                        </Label>
+                        <Input
+                          value={
+                            toOptionalString(currentVendor.routingKey) ?? ""
+                          }
+                          onChange={(e) => {
+                            const base = ensureVendorConfigForType(
+                              "RABBIT",
+                              form.getValues("vendorConfig") as any,
+                            ) as any;
+
+                            form.setValue(
+                              "vendorConfig",
+                              {
+                                ...base,
+                                vendor: "RABBIT",
+                                routingKey: e.target.value,
+                              } as any,
+                              { shouldDirty: true, shouldValidate: true },
+                            );
+                          }}
+                          className="bg-background font-mono text-sm"
+                          placeholder="e.g. orders.*"
+                        />
+                        {form.getFieldState("vendorConfig.routingKey").error ? (
+                          <p className="text-destructive text-xs">
+                            {form.getFieldState("vendorConfig.routingKey").error
+                              ?.message ?? "Routing key is required"}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Shadow queue toggle */}
                     <div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
                       <div>
-                        <div className="text-sm font-medium">Shadow Queue</div>
+                        <div className="text-sm font-medium">
+                          Search Shadow Queue
+                        </div>
                         <div className="text-xs text-muted-foreground">
-                          Enables storing a copy of messages for safe
-                          replay/debug.
+                          Stores a copy of messages for search/debug. Live uses
+                          a separate short-lived queue.
                         </div>
                       </div>
                       <Switch
@@ -895,7 +1035,7 @@ export function StreamForm({
                         onCheckedChange={(checked) => {
                           const base = ensureVendorConfigForType(
                             "RABBIT",
-                            form.getValues("vendorConfig") as any
+                            form.getValues("vendorConfig") as any,
                           ) as any;
 
                           form.setValue(
@@ -905,15 +1045,165 @@ export function StreamForm({
                               vendor: "RABBIT",
                               shadowQueueEnabled: checked,
                             } as any,
-                            { shouldDirty: true, shouldValidate: true }
+                            { shouldDirty: true, shouldValidate: true },
                           );
                         }}
                       />
                     </div>
 
+                    {/* Retention controls (Search only) */}
+                    <div className="rounded-lg border border-border/60 p-3 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-medium">
+                            Search retention
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Applies only to <b>Search shadow queue</b>. Values
+                            are stored per stream. Leave empty to use agent
+                            defaults.
+                          </div>
+                        </div>
+
+                        {/* quick presets */}
+                        <Select
+                          value={
+                            currentVendor.searchShadowTtlMs == null
+                              ? "DEFAULT"
+                              : String(currentVendor.searchShadowTtlMs)
+                          }
+                          onValueChange={(v) => {
+                            const base = ensureVendorConfigForType(
+                              "RABBIT",
+                              form.getValues("vendorConfig") as any,
+                            ) as any;
+
+                            const ttl =
+                              v === "DEFAULT"
+                                ? undefined
+                                : Number(String(v).trim());
+
+                            form.setValue(
+                              "vendorConfig",
+                              {
+                                ...base,
+                                vendor: "RABBIT",
+                                searchShadowTtlMs: Number.isFinite(ttl as any)
+                                  ? ttl
+                                  : undefined,
+                              } as any,
+                              { shouldDirty: true, shouldValidate: true },
+                            );
+                          }}
+                        >
+                          <SelectTrigger className="bg-background w-[180px]">
+                            <SelectValue placeholder="TTL preset" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="DEFAULT">Default</SelectItem>
+                            <SelectItem value={String(60 * 60 * 1000)}>
+                              1 hour
+                            </SelectItem>
+                            <SelectItem value={String(24 * 60 * 60 * 1000)}>
+                              24 hours
+                            </SelectItem>
+                            <SelectItem value={String(7 * 24 * 60 * 60 * 1000)}>
+                              7 days
+                            </SelectItem>
+                            <SelectItem
+                              value={String(30 * 24 * 60 * 60 * 1000)}
+                            >
+                              30 days
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">
+                            TTL (milliseconds)
+                          </Label>
+                          <Input
+                            value={
+                              currentVendor.searchShadowTtlMs == null
+                                ? ""
+                                : String(currentVendor.searchShadowTtlMs)
+                            }
+                            onChange={(e) => {
+                              const base = ensureVendorConfigForType(
+                                "RABBIT",
+                                form.getValues("vendorConfig") as any,
+                              ) as any;
+
+                              form.setValue(
+                                "vendorConfig",
+                                {
+                                  ...base,
+                                  vendor: "RABBIT",
+                                  searchShadowTtlMs: toOptionalNumber(
+                                    e.target.value,
+                                  ),
+                                } as any,
+                                { shouldDirty: true, shouldValidate: true },
+                              );
+                            }}
+                            className="bg-background font-mono text-sm"
+                            placeholder="leave empty for default (e.g. 86400000)"
+                            disabled={
+                              !Boolean(currentVendor.shadowQueueEnabled)
+                            }
+                          />
+                          <p className="text-[11px] text-muted-foreground">
+                            Tip: use preset above for common values.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">
+                            Max messages
+                          </Label>
+                          <Input
+                            value={
+                              currentVendor.searchShadowMaxLength == null
+                                ? ""
+                                : String(currentVendor.searchShadowMaxLength)
+                            }
+                            onChange={(e) => {
+                              const base = ensureVendorConfigForType(
+                                "RABBIT",
+                                form.getValues("vendorConfig") as any,
+                              ) as any;
+
+                              form.setValue(
+                                "vendorConfig",
+                                {
+                                  ...base,
+                                  vendor: "RABBIT",
+                                  searchShadowMaxLength: toOptionalNumber(
+                                    e.target.value,
+                                  ),
+                                } as any,
+                                { shouldDirty: true, shouldValidate: true },
+                              );
+                            }}
+                            className="bg-background font-mono text-sm"
+                            placeholder="leave empty for default (e.g. 100000)"
+                            disabled={
+                              !Boolean(currentVendor.shadowQueueEnabled)
+                            }
+                          />
+                          <p className="text-[11px] text-muted-foreground">
+                            Tip: keep it bounded to avoid unbounded storage.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Optional custom name */}
                     <div className="space-y-2">
                       <Label className="text-xs text-muted-foreground">
-                        Shadow queue name (optional)
+                        Search shadow queue name (optional)
                       </Label>
                       <Input
                         value={
@@ -922,7 +1212,7 @@ export function StreamForm({
                         onChange={(e) => {
                           const base = ensureVendorConfigForType(
                             "RABBIT",
-                            form.getValues("vendorConfig") as any
+                            form.getValues("vendorConfig") as any,
                           ) as any;
 
                           form.setValue(
@@ -932,11 +1222,12 @@ export function StreamForm({
                               vendor: "RABBIT",
                               shadowQueueName: toOptionalString(e.target.value),
                             } as any,
-                            { shouldDirty: true, shouldValidate: true }
+                            { shouldDirty: true, shouldValidate: true },
                           );
                         }}
                         className="bg-background font-mono text-sm"
-                        placeholder="orders.shadow.queue"
+                        placeholder="leave empty for auto (e.g. cs-audit-orders.queue)"
+                        disabled={!Boolean(currentVendor.shadowQueueEnabled)}
                       />
                     </div>
                   </div>
@@ -960,7 +1251,7 @@ export function StreamForm({
                         onChange={(e) => {
                           const base = ensureVendorConfigForType(
                             "POSTGRES",
-                            form.getValues("vendorConfig") as any
+                            form.getValues("vendorConfig") as any,
                           ) as any;
 
                           form.setValue(
@@ -970,7 +1261,7 @@ export function StreamForm({
                               vendor: "POSTGRES",
                               schema: e.target.value,
                             } as any,
-                            { shouldDirty: true, shouldValidate: true }
+                            { shouldDirty: true, shouldValidate: true },
                           );
                         }}
                         className="bg-background font-mono text-sm"
@@ -1000,7 +1291,7 @@ export function StreamForm({
                         onChange={(e) => {
                           const base = ensureVendorConfigForType(
                             "KAFKA",
-                            form.getValues("vendorConfig") as any
+                            form.getValues("vendorConfig") as any,
                           ) as any;
 
                           form.setValue(
@@ -1010,7 +1301,7 @@ export function StreamForm({
                               vendor: "KAFKA",
                               consumerGroupId: toOptionalString(e.target.value),
                             } as any,
-                            { shouldDirty: true, shouldValidate: true }
+                            { shouldDirty: true, shouldValidate: true },
                           );
                         }}
                         className="bg-background font-mono text-sm"
@@ -1030,7 +1321,7 @@ export function StreamForm({
                         onChange={(e) => {
                           const base = ensureVendorConfigForType(
                             "KAFKA",
-                            form.getValues("vendorConfig") as any
+                            form.getValues("vendorConfig") as any,
                           ) as any;
 
                           form.setValue(
@@ -1039,10 +1330,10 @@ export function StreamForm({
                               ...base,
                               vendor: "KAFKA",
                               correlationHeader: toOptionalString(
-                                e.target.value
+                                e.target.value,
                               ),
                             } as any,
-                            { shouldDirty: true, shouldValidate: true }
+                            { shouldDirty: true, shouldValidate: true },
                           );
                         }}
                         className="bg-background font-mono text-sm"
@@ -1098,6 +1389,19 @@ export function StreamForm({
           </div>
         </div>
       </div>
+      <RabbitProvisioningConfirmDialog
+        open={rabbitConfirmOpen}
+        onOpenChange={(open) => {
+          setRabbitConfirmOpen(open);
+          if (!open) pendingPayloadRef.current = null;
+        }}
+        originalQueueName={
+          String(form.getValues("technicalName") ?? "").trim() || "(not set)"
+        }
+        searchShadowQueueName={"auto (cs-audit-<queue>)"}
+        liveShadowQueueName={"auto (cs-live-<queue>)"}
+        onConfirm={confirmRabbitProvisioning}
+      />
     </form>
   );
 }

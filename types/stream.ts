@@ -25,13 +25,13 @@ export type KafkaStreamVendorConfigDto = {
 
 export type RabbitStreamVendorConfigDto = {
   vendor: "RABBIT";
-  queue?: string;
-  exchange?: string;
-  routingKey?: string;
+  exchange: string;
+  routingKey: string;
   prefetchCount?: number;
-  shadowQueueEnabled: boolean;
   shadowQueueName?: string | null;
   correlationHeader?: string;
+  searchShadowTtlMs?: number | null;
+  searchShadowMaxLength?: number | null;
 };
 
 export type PostgresStreamVendorConfigDto = {

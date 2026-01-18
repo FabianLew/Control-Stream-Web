@@ -77,6 +77,10 @@ export default function SearchPage() {
 
   // Flaga inicjalizacji
   const [isInitialized, setIsInitialized] = useState(false);
+  const [restoredFromStorage, setRestoredFromStorage] = useState(false);
+
+  const STORAGE_VERSION_KEY = "cs_search_storage_version";
+  const STORAGE_VERSION = "2"; // podbijaj jak zmieniasz format / chcesz wyczyścić stare
 
   // --- 1. ŁADOWANIE STANU PRZY STARCIE ---
   useEffect(() => {
@@ -87,26 +91,46 @@ export default function SearchPage() {
       .finally(() => setAreStreamsLoading(false));
 
     try {
+      const storedVersion = localStorage.getItem(STORAGE_VERSION_KEY);
+      if (storedVersion !== STORAGE_VERSION) {
+        localStorage.removeItem(STORAGE_FILTERS_KEY);
+        localStorage.removeItem(STORAGE_PRESET_KEY);
+        localStorage.removeItem(STORAGE_VIEW_KEY);
+        localStorage.setItem(STORAGE_VERSION_KEY, STORAGE_VERSION);
+      }
       const savedView = localStorage.getItem(STORAGE_VIEW_KEY);
-      const savedFilters = localStorage.getItem(STORAGE_FILTERS_KEY);
-      const savedPreset = localStorage.getItem(STORAGE_PRESET_KEY);
+      const savedFiltersRaw = localStorage.getItem(STORAGE_FILTERS_KEY);
+      const savedPresetRaw = localStorage.getItem(STORAGE_PRESET_KEY);
 
+      // 1) View mode (UI-only)
       if (savedView === "unified" || savedView === "segmented") {
         setViewMode(savedView);
       }
 
-      if (savedPreset) {
-        setTimePreset(savedPreset);
-      }
+      // 2) Preset (UI-only)
+      const preset = savedPresetRaw || "1h";
+      setTimePreset(preset);
 
-      // WAŻNE: Wczytujemy filtry z LocalStorage tylko jeśli Zustand jest pusty
-      // lub chcemy wymusić spójność. Tutaj zakładamy, że LocalStorage jest źródłem prawdy przy F5.
-      if (savedFilters) {
-        const parsedFilters = JSON.parse(savedFilters);
-        // Scalamy, ale uwaga: jeśli Zustand ma już dane, to setFilters zaktualizuje je w Store
-        setFilters((prev) => ({ ...prev, ...parsedFilters }));
+      // 3) Filtry
+      if (savedFiltersRaw) {
+        const parsed = JSON.parse(savedFiltersRaw);
+
+        // jeśli preset nie jest custom, to odtwarzamy filtry, ale czas liczymy od nowa
+        if (preset !== "custom") {
+          delete parsed.fromTime;
+          delete parsed.toTime;
+        }
+
+        setFilters((prev) => ({ ...prev, ...parsed }));
+
+        // jeśli preset != custom -> ustaw aktualne from/to na bazie presetu (np. 1h od teraz)
+        if (preset !== "custom") {
+          handlePresetChange(preset);
+        }
       } else {
-        handlePresetChange("1h");
+        // brak danych w storage -> NIE ustawiamy from/to automatycznie
+        // user ma kliknąć Search żeby wysłać request
+        setFilters((prev) => ({ ...prev }));
       }
     } catch (e) {
       console.error("Failed to restore search state", e);
@@ -116,21 +140,14 @@ export default function SearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- 2. AUTOMATYCZNE WYSZUKIWANIE (POPRAWIONE) ---
   useEffect(() => {
-    if (isInitialized) {
-      // --- FIX: BLOKADA PONOWNEGO REQUESTU ---
-      // Jeśli w Zustandzie (results) są już wyniki, to znaczy że wróciliśmy z innej zakładki.
-      // Nie robimy search(), bo dane są w RAM i wyświetlą się natychmiast.
-      if (results.length > 0) {
-        return;
-      }
+    if (!isInitialized) return;
+    if (!restoredFromStorage) return;
+    if (results.length > 0) return; // jak wracasz z tabów i masz dane w RAM
 
-      // Jeśli results jest puste (np. po F5), to wtedy robimy fetch
-      search();
-    }
+    search();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInitialized]); // Zależność tylko od inicjalizacji
+  }, [isInitialized, restoredFromStorage]);
 
   // --- 3. AUTOMATYCZNE ZAPISYWANIE ZMIAN ---
   useEffect(() => {
@@ -157,6 +174,22 @@ export default function SearchPage() {
     }
   };
 
+  useEffect(() => {
+    if (!isInitialized) return;
+    if (!allStreams.length) return;
+
+    const allowedIds = new Set(allStreams.map((s) => s.id));
+
+    setFilters((prev) => {
+      const current = prev.streamIds ?? [];
+      const cleaned = current.filter((id) => allowedIds.has(id));
+
+      if (cleaned.length === current.length) return prev;
+
+      return { ...prev, streamIds: cleaned };
+    });
+  }, [allStreams, isInitialized, setFilters]);
+
   const toggleVendorType = (type: string) => {
     const currentTypes = filters.streamTypes || [];
     const newTypes = currentTypes.includes(type)
@@ -164,28 +197,32 @@ export default function SearchPage() {
       : [...currentTypes, type];
     handleInputChange("streamTypes", newTypes);
   };
-
   const handlePresetChange = (val: string) => {
     setTimePreset(val);
+    localStorage.setItem(STORAGE_PRESET_KEY, val);
+
     if (val === "custom") return;
+
     const now = new Date();
-    let from = new Date();
+    const from = new Date(now.getTime());
+
     switch (val) {
       case "15m":
-        from.setMinutes(now.getMinutes() - 15);
+        from.setMinutes(from.getMinutes() - 15);
         break;
       case "1h":
-        from.setHours(now.getHours() - 1);
+        from.setHours(from.getHours() - 1);
         break;
       case "24h":
-        from.setHours(now.getHours() - 24);
+        from.setHours(from.getHours() - 24);
         break;
       case "7d":
-        from.setDate(now.getDate() - 7);
+        from.setDate(from.getDate() - 7);
         break;
       default:
         return;
     }
+
     setFilters((prev) => ({
       ...prev,
       fromTime: from.toISOString(),
@@ -195,6 +232,16 @@ export default function SearchPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // jeśli user nie ma from/to, a preset jest "1h/24h/..." to ustaw je przy submit
+    if (timePreset !== "custom" && (!filters.fromTime || !filters.toTime)) {
+      handlePresetChange(timePreset); // to ustawi filtry
+      // UWAGA: setState async — więc albo:
+      // 1) daj microtask i odpal search później
+      queueMicrotask(() => search());
+      return;
+    }
+
     search();
   };
 
@@ -386,7 +433,7 @@ export default function SearchPage() {
                     onChange={(e) =>
                       handleInputChange(
                         "fromTime",
-                        new Date(e.target.value).toISOString()
+                        new Date(e.target.value).toISOString(),
                       )
                     }
                   />
@@ -402,7 +449,7 @@ export default function SearchPage() {
                     onChange={(e) =>
                       handleInputChange(
                         "toTime",
-                        new Date(e.target.value).toISOString()
+                        new Date(e.target.value).toISOString(),
                       )
                     }
                   />

@@ -176,11 +176,9 @@ export const demoStreams: UnifiedStreamDto[] = [
     correlationKeyName: "x-correlation-id",
     vendorConfig: {
       vendor: "RABBIT",
-      queue: "payments.queue",
       exchange: "payments.exchange",
       routingKey: "payments.created",
       prefetchCount: 100,
-      shadowQueueEnabled: true,
       shadowQueueName: "payments.shadow",
       correlationHeader: "x-correlation-id",
     },
@@ -214,7 +212,7 @@ export const demoStreamOverviewById: Record<string, StreamOverviewDto> =
   Object.fromEntries(
     demoStreams.map((stream) => {
       const connection = demoConnections.find(
-        (c) => c.id === stream.connectionId
+        (c) => c.id === stream.connectionId,
       )!;
       const overview: StreamOverviewDto = {
         id: stream.id,
@@ -229,7 +227,7 @@ export const demoStreamOverviewById: Record<string, StreamOverviewDto> =
         connectionConfig: connection.config,
       };
       return [stream.id, overview];
-    })
+    }),
   );
 
 export const demoConnectionStreamsByConnectionId: Record<
@@ -247,7 +245,7 @@ export const demoConnectionStreamsByConnectionId: Record<
         technicalName: s.technicalName,
         createdAt: s.createdAt,
       })),
-  ])
+  ]),
 );
 
 export function demoTestConnection(id: string): ConnectionTestResultDto {
@@ -337,15 +335,15 @@ export function demoSearch(params: URLSearchParams): SearchResult {
     const cid = correlationId
       ? correlationId
       : i % 4 === 0
-      ? null
-      : `corr-${(i % 25).toString().padStart(2, "0")}`;
+        ? null
+        : `corr-${(i % 25).toString().padStart(2, "0")}`;
     const payloadObject = {
       eventType:
         stream.type === "KAFKA"
           ? "OrderCreated"
           : stream.type === "RABBIT"
-          ? "PaymentCaptured"
-          : "OutboxEvent",
+            ? "PaymentCaptured"
+            : "OutboxEvent",
       id: `evt-${i.toString().padStart(6, "0")}`,
       correlationId: cid,
       ts: isoMinutesAgo(i),
@@ -401,7 +399,7 @@ export function demoSearch(params: URLSearchParams): SearchResult {
 // ---- Live demo ----
 
 export function demoCreateLiveSession(
-  _req: CreateLiveSessionRequest
+  _req: CreateLiveSessionRequest,
 ): CreateLiveSessionResponse {
   return {
     sessionId: uuid(`live-${Math.random().toString(16).slice(2, 10)}`),
@@ -411,7 +409,7 @@ export function demoCreateLiveSession(
 
 export function demoLiveBatches(
   sessionId: string,
-  count: number
+  count: number,
 ): LiveBatchDto[] {
   const batches: LiveBatchDto[] = [];
   let sequence = 1;
@@ -421,7 +419,7 @@ export function demoLiveBatches(
     for (let i = 0; i < 4; i++) {
       const stream = streams[(b * 4 + i) % streams.length];
       const receivedAt = new Date(
-        Date.now() - (b * 400 + i * 50)
+        Date.now() - (b * 400 + i * 50),
       ).toISOString();
       const correlationId =
         i % 3 === 0

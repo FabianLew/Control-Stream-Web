@@ -69,11 +69,6 @@ export function Sidebar() {
         <WorkspaceSwitcher />
         <p className="text-xs text-text-secondary">v1.0.0 Alpha</p>
       </div>
-
-      {/* Footer */}
-      <div className="mt-auto border-t border-border pt-4 px-2">
-        <p className="text-xs text-text-secondary">v1.0.0 Alpha</p>
-      </div>
     </aside>
   );
 }

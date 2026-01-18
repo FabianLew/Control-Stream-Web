@@ -170,10 +170,10 @@ const kafkaVendorSchema = z.object({
 const rabbitVendorSchema = z.object({
   vendor: z.literal("RABBIT"),
   queue: z.string().optional(),
-  exchange: z.string().optional(),
-  routingKey: z.string().optional(),
+  exchange: z.string().min(1),
+  routingKey: z.string().min(1),
   prefetchCount: z.number().int().positive().optional(),
-  shadowQueueEnabled: z.boolean(), // required
+  shadowQueueEnabled: z.boolean(),
   shadowQueueName: z.string().nullable().optional(),
   correlationHeader: z.string().optional(),
 });

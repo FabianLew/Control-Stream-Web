@@ -127,7 +127,7 @@ function useActiveSection(sectionIds: SectionId[]) {
         const visible = entries
           .filter((e) => e.isIntersecting)
           .sort(
-            (a, b) => (b.intersectionRatio ?? 0) - (a.intersectionRatio ?? 0)
+            (a, b) => (b.intersectionRatio ?? 0) - (a.intersectionRatio ?? 0),
           );
 
         if (visible[0]?.target?.id) {
@@ -139,7 +139,7 @@ function useActiveSection(sectionIds: SectionId[]) {
         root: null,
         rootMargin: "-25% 0px -60% 0px",
         threshold: [0.15, 0.25, 0.4, 0.55, 0.7],
-      }
+      },
     );
 
     elements.forEach((el) => observer.observe(el));
@@ -269,15 +269,15 @@ function StreamVendorConfigSection({
   vendorConfig: StreamOverviewDto["vendorConfig"];
 }) {
   const isKafkaVendorConfig = (
-    v: StreamVendorConfigDto
+    v: StreamVendorConfigDto,
   ): v is KafkaStreamVendorConfigDto => isVendor(v.vendor, VENDOR_META.KAFKA);
 
   const isRabbitVendorConfig = (
-    v: StreamVendorConfigDto
+    v: StreamVendorConfigDto,
   ): v is RabbitStreamVendorConfigDto => isVendor(v.vendor, VENDOR_META.RABBIT);
 
   const isPostgresVendorConfig = (
-    v: StreamVendorConfigDto
+    v: StreamVendorConfigDto,
   ): v is PostgresStreamVendorConfigDto =>
     isVendor(v.vendor, VENDOR_META.POSTGRES);
 
@@ -318,11 +318,6 @@ function StreamVendorConfigSection({
     return (
       <div className="space-y-3">
         <KeyValueRow
-          label="Queue"
-          value={vendorConfig.queue ?? <Badge variant="outline">not set</Badge>}
-          mono
-        />
-        <KeyValueRow
           label="Exchange"
           value={
             vendorConfig.exchange ?? <Badge variant="outline">not set</Badge>
@@ -346,32 +341,15 @@ function StreamVendorConfigSection({
           mono
         />
         <KeyValueRow
-          label="Shadow Queue"
+          label="Shadow Queue Name"
           value={
-            vendorConfig.shadowQueueEnabled ? (
-              <Badge
-                variant="outline"
-                className="border-emerald-500/20 bg-emerald-500/10 text-emerald-500"
-              >
-                enabled
-              </Badge>
-            ) : (
-              <Badge variant="outline">disabled</Badge>
+            vendorConfig.shadowQueueName ?? (
+              <Badge variant="outline">auto</Badge>
             )
           }
+          mono
+          copyText={vendorConfig.shadowQueueName ?? undefined}
         />
-        {vendorConfig.shadowQueueEnabled ? (
-          <KeyValueRow
-            label="Shadow Queue Name"
-            value={
-              vendorConfig.shadowQueueName ?? (
-                <Badge variant="outline">auto</Badge>
-              )
-            }
-            mono
-            copyText={vendorConfig.shadowQueueName ?? undefined}
-          />
-        ) : null}
         <KeyValueRow
           label="Correlation Header"
           value={
@@ -541,15 +519,15 @@ function ConnectionConfigMini({
   config: StreamOverviewDto["connectionConfig"];
 }) {
   const isKafkaConfig = (
-    v: ConnectionConfigDto
+    v: ConnectionConfigDto,
   ): v is KafkaConnectionConfigDto => isVendor(v.vendor, VENDOR_META.KAFKA);
 
   const isRabbitConfig = (
-    v: ConnectionConfigDto
+    v: ConnectionConfigDto,
   ): v is RabbitConnectionConfigDto => isVendor(v.vendor, VENDOR_META.RABBIT);
 
   const isPostgresConfig = (
-    v: ConnectionConfigDto
+    v: ConnectionConfigDto,
   ): v is PostgresConnectionConfigDto =>
     isVendor(v.vendor, VENDOR_META.POSTGRES);
 
