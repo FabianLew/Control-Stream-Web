@@ -18,9 +18,7 @@ export type CorrelationKeyType = "HEADER" | "COLUMN";
 // --- vendor configs ---
 export type KafkaStreamVendorConfigDto = {
   vendor: "KAFKA";
-  topic?: string;
   consumerGroupId?: string;
-  correlationHeader?: string;
 };
 
 export type RabbitStreamVendorConfigDto = {
@@ -29,7 +27,6 @@ export type RabbitStreamVendorConfigDto = {
   routingKey: string;
   prefetchCount?: number;
   shadowQueueName?: string | null;
-  correlationHeader?: string;
   searchShadowTtlMs?: number | null;
   searchShadowMaxLength?: number | null;
 };
@@ -37,8 +34,6 @@ export type RabbitStreamVendorConfigDto = {
 export type PostgresStreamVendorConfigDto = {
   vendor: "POSTGRES";
   schema?: string;
-  table?: string;
-  correlationColumn?: string;
   timeColumn?: string;
 };
 
@@ -68,6 +63,7 @@ export type StreamOverviewDto = {
   name: string;
   type: StreamType;
   technicalName: string;
+  correlationKeyName?: string;
 
   vendorConfig: StreamVendorConfigDto;
   decoding: PayloadDecodingConfigDto;

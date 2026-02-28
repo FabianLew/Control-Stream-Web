@@ -162,27 +162,22 @@ export const payloadDecodingConfigSchema = z
 
 const kafkaVendorSchema = z.object({
   vendor: z.literal("KAFKA"),
-  topic: z.string().optional(),
   consumerGroupId: z.string().optional(),
-  correlationHeader: z.string().optional(),
 });
 
 const rabbitVendorSchema = z.object({
   vendor: z.literal("RABBIT"),
-  queue: z.string().optional(),
   exchange: z.string().min(1),
   routingKey: z.string().min(1),
   prefetchCount: z.number().int().positive().optional(),
-  shadowQueueEnabled: z.boolean(),
   shadowQueueName: z.string().nullable().optional(),
-  correlationHeader: z.string().optional(),
+  searchShadowTtlMs: z.number().int().positive().optional(),
+  searchShadowMaxLength: z.number().int().positive().optional(),
 });
 
 const postgresVendorSchema = z.object({
   vendor: z.literal("POSTGRES"),
   schema: z.string().optional(),
-  table: z.string().optional(),
-  correlationColumn: z.string().optional(),
   timeColumn: z.string().optional(),
 });
 

@@ -215,19 +215,49 @@ function ensureVendorConfigForType(
     if (current && isVendor(current.vendor, VENDOR_META.KAFKA)) return current;
     return { vendor: "KAFKA" };
   }
+
   if (isVendor(type, VENDOR_META.RABBIT)) {
     if (current && isVendor(current.vendor, VENDOR_META.RABBIT)) {
+      const c: any = current;
+
       return {
         ...current,
-        shadowQueueEnabled: Boolean((current as any).shadowQueueEnabled),
-        shadowQueueName:
-          (current as any).shadowQueueName == null
+        // ensure optional fields are normalized (avoid nulls / NaN)
+        exchange: c.exchange == null ? undefined : String(c.exchange),
+        routingKey: c.routingKey == null ? undefined : String(c.routingKey),
+        prefetchCount:
+          c.prefetchCount == null ? undefined : Number(c.prefetchCount),
+        correlationHeader:
+          c.correlationHeader == null ? undefined : String(c.correlationHeader),
+
+        // NEW: search shadow retention (optional)
+        searchShadowTtlMs:
+          c.searchShadowTtlMs == null ? undefined : Number(c.searchShadowTtlMs),
+        searchShadowMaxLength:
+          c.searchShadowMaxLength == null
             ? undefined
-            : (current as any).shadowQueueName,
+            : Number(c.searchShadowMaxLength),
+
+        // NEW: optional custom name for SEARCH shadow
+        searchShadowQueueName:
+          c.searchShadowQueueName == null ? undefined : c.searchShadowQueueName,
       } as any;
     }
-    return { vendor: "RABBIT", shadowQueueEnabled: false } as any;
+
+    // defaults for a new Rabbit stream (queues always provisioned on backend)
+    return {
+      vendor: "RABBIT",
+      exchange: "",
+      routingKey: "",
+      prefetchCount: undefined,
+      correlationHeader: undefined,
+
+      searchShadowTtlMs: undefined,
+      searchShadowMaxLength: undefined,
+      searchShadowQueueName: undefined,
+    } as any;
   }
+
   // POSTGRES
   if (current && isVendor(current.vendor, VENDOR_META.POSTGRES)) return current;
   return { vendor: "POSTGRES", schema: "public" };
@@ -236,8 +266,6 @@ function ensureVendorConfigForType(
 function normalizeVendorConfig(
   type: StreamType,
   vendorConfig: StreamVendorConfigDto | undefined,
-  technicalName: string,
-  correlationKeyName: string,
 ): StreamVendorConfigDto {
   const current = vendorConfig ?? ({} as any);
 
@@ -247,32 +275,31 @@ function normalizeVendorConfig(
       : { vendor: "KAFKA" };
     return {
       vendor: "KAFKA",
-      topic: toOptionalString(v.topic) ?? toOptionalString(technicalName),
       consumerGroupId: toOptionalString(v.consumerGroupId),
-      correlationHeader: toOptionalString(v.correlationHeader),
     };
   }
 
   if (isVendor(type, VENDOR_META.RABBIT)) {
     const v = isVendor(current.vendor, VENDOR_META.RABBIT)
       ? current
-      : ({ vendor: "RABBIT", shadowQueueEnabled: false } as any);
+      : ({ vendor: "RABBIT" } as any);
 
     return {
       vendor: "RABBIT",
       exchange: String(v.exchange ?? "").trim(), // required
       routingKey: String(v.routingKey ?? "").trim(), // required
       prefetchCount: toOptionalNumber(v.prefetchCount),
-      shadowQueueEnabled: true,
-      shadowQueueName:
-        v.shadowQueueName == null
-          ? undefined
-          : toOptionalString(v.shadowQueueName),
       correlationHeader: toOptionalString(v.correlationHeader),
-      searchShadowTtlMs:
-        toOptionalNumber((v as any).searchShadowTtlMs) ?? undefined,
-      searchShadowMaxLength:
-        toOptionalNumber((v as any).searchShadowMaxLength) ?? undefined,
+
+      // Search shadow tuning (optional)
+      searchShadowTtlMs: toOptionalNumber((v as any).searchShadowTtlMs),
+      searchShadowMaxLength: toOptionalNumber((v as any).searchShadowMaxLength),
+
+      // Optional override ONLY for SEARCH shadow queue name (if you keep it)
+      searchShadowQueueName:
+        (v as any).searchShadowQueueName == null
+          ? undefined
+          : toOptionalString((v as any).searchShadowQueueName),
     } as any;
   }
 
@@ -283,9 +310,6 @@ function normalizeVendorConfig(
   return {
     vendor: "POSTGRES",
     schema: toOptionalString(v.schema) ?? "public",
-    table: toOptionalString(v.table) ?? toOptionalString(technicalName),
-    correlationColumn:
-      toOptionalString(v.correlationColumn) ?? correlationKeyName,
     timeColumn: toOptionalString(v.timeColumn),
   };
 }
@@ -309,8 +333,6 @@ function normalizeFormPayload(
   const normalizedVendor = normalizeVendorConfig(
     data.type,
     data.vendorConfig as any,
-    technical,
-    correlationKeyName,
   );
 
   const normalizedDecoding = normalizeDecoding(data.decoding);
@@ -477,7 +499,16 @@ export function StreamForm({
       if (isVendor(activeConnection.type, VENDOR_META.RABBIT)) {
         form.setValue(
           "vendorConfig",
-          { vendor: "RABBIT", shadowQueueEnabled: false } as any,
+          {
+            vendor: "RABBIT",
+            exchange: "",
+            routingKey: "",
+            prefetchCount: undefined,
+            correlationHeader: undefined,
+            searchShadowTtlMs: undefined,
+            searchShadowMaxLength: undefined,
+            searchShadowQueueName: undefined,
+          } as any,
           { shouldDirty: true, shouldValidate: true },
         );
       } else {
@@ -1030,25 +1061,6 @@ export function StreamForm({
                           a separate short-lived queue.
                         </div>
                       </div>
-                      <Switch
-                        checked={Boolean(currentVendor.shadowQueueEnabled)}
-                        onCheckedChange={(checked) => {
-                          const base = ensureVendorConfigForType(
-                            "RABBIT",
-                            form.getValues("vendorConfig") as any,
-                          ) as any;
-
-                          form.setValue(
-                            "vendorConfig",
-                            {
-                              ...base,
-                              vendor: "RABBIT",
-                              shadowQueueEnabled: checked,
-                            } as any,
-                            { shouldDirty: true, shouldValidate: true },
-                          );
-                        }}
-                      />
                     </div>
 
                     {/* Retention controls (Search only) */}
@@ -1150,9 +1162,6 @@ export function StreamForm({
                             }}
                             className="bg-background font-mono text-sm"
                             placeholder="leave empty for default (e.g. 86400000)"
-                            disabled={
-                              !Boolean(currentVendor.shadowQueueEnabled)
-                            }
                           />
                           <p className="text-[11px] text-muted-foreground">
                             Tip: use preset above for common values.
@@ -1189,9 +1198,6 @@ export function StreamForm({
                             }}
                             className="bg-background font-mono text-sm"
                             placeholder="leave empty for default (e.g. 100000)"
-                            disabled={
-                              !Boolean(currentVendor.shadowQueueEnabled)
-                            }
                           />
                           <p className="text-[11px] text-muted-foreground">
                             Tip: keep it bounded to avoid unbounded storage.
@@ -1227,7 +1233,6 @@ export function StreamForm({
                         }}
                         className="bg-background font-mono text-sm"
                         placeholder="leave empty for auto (e.g. cs-audit-orders.queue)"
-                        disabled={!Boolean(currentVendor.shadowQueueEnabled)}
                       />
                     </div>
                   </div>
@@ -1306,38 +1311,6 @@ export function StreamForm({
                         }}
                         className="bg-background font-mono text-sm"
                         placeholder="e.g. controlstream-consumer"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">
-                        Correlation Header (optional)
-                      </Label>
-                      <Input
-                        value={
-                          toOptionalString(currentVendor.correlationHeader) ??
-                          ""
-                        }
-                        onChange={(e) => {
-                          const base = ensureVendorConfigForType(
-                            "KAFKA",
-                            form.getValues("vendorConfig") as any,
-                          ) as any;
-
-                          form.setValue(
-                            "vendorConfig",
-                            {
-                              ...base,
-                              vendor: "KAFKA",
-                              correlationHeader: toOptionalString(
-                                e.target.value,
-                              ),
-                            } as any,
-                            { shouldDirty: true, shouldValidate: true },
-                          );
-                        }}
-                        className="bg-background font-mono text-sm"
-                        placeholder="e.g. trace-id"
                       />
                     </div>
                   </div>

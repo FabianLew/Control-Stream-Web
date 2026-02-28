@@ -263,11 +263,7 @@ function StickySectionDock({
 }
 
 // --- Vendor config section ---
-function StreamVendorConfigSection({
-  vendorConfig,
-}: {
-  vendorConfig: StreamOverviewDto["vendorConfig"];
-}) {
+function StreamVendorConfigSection({ stream }: { stream: StreamOverviewDto }) {
   const isKafkaVendorConfig = (
     v: StreamVendorConfigDto,
   ): v is KafkaStreamVendorConfigDto => isVendor(v.vendor, VENDOR_META.KAFKA);
@@ -281,60 +277,64 @@ function StreamVendorConfigSection({
   ): v is PostgresStreamVendorConfigDto =>
     isVendor(v.vendor, VENDOR_META.POSTGRES);
 
-  if (isKafkaVendorConfig(vendorConfig)) {
+  if (isKafkaVendorConfig(stream.vendorConfig)) {
     return (
       <div className="space-y-3">
         <KeyValueRow
           label="Topic"
-          value={vendorConfig.topic ?? <Badge variant="outline">default</Badge>}
+          value={
+            stream.technicalName ?? <Badge variant="outline">default</Badge>
+          }
           mono
-          copyText={vendorConfig.topic ?? undefined}
+          copyText={stream.technicalName ?? undefined}
         />
         <KeyValueRow
           label="Consumer Group"
           value={
-            vendorConfig.consumerGroupId ?? (
+            stream.vendorConfig.consumerGroupId ?? (
               <Badge variant="outline">default</Badge>
             )
           }
           mono
-          copyText={vendorConfig.consumerGroupId ?? undefined}
+          copyText={stream.vendorConfig.consumerGroupId ?? undefined}
         />
         <KeyValueRow
           label="Correlation Header"
           value={
-            vendorConfig.correlationHeader ?? (
-              <Badge variant="outline">default</Badge>
-            )
+            stream.connectionName ?? <Badge variant="outline">default</Badge>
           }
           mono
-          copyText={vendorConfig.correlationHeader ?? undefined}
+          copyText={stream.correlationKeyName ?? undefined}
         />
       </div>
     );
   }
 
-  if (isRabbitVendorConfig(vendorConfig)) {
+  if (isRabbitVendorConfig(stream.vendorConfig)) {
     return (
       <div className="space-y-3">
         <KeyValueRow
           label="Exchange"
           value={
-            vendorConfig.exchange ?? <Badge variant="outline">not set</Badge>
+            stream.vendorConfig.exchange ?? (
+              <Badge variant="outline">not set</Badge>
+            )
           }
           mono
         />
         <KeyValueRow
           label="Routing Key"
           value={
-            vendorConfig.routingKey ?? <Badge variant="outline">not set</Badge>
+            stream.vendorConfig.routingKey ?? (
+              <Badge variant="outline">not set</Badge>
+            )
           }
           mono
         />
         <KeyValueRow
           label="Prefetch"
           value={
-            vendorConfig.prefetchCount ?? (
+            stream.vendorConfig.prefetchCount ?? (
               <Badge variant="outline">default</Badge>
             )
           }
@@ -343,65 +343,71 @@ function StreamVendorConfigSection({
         <KeyValueRow
           label="Shadow Queue Name"
           value={
-            vendorConfig.shadowQueueName ?? (
+            stream.vendorConfig.shadowQueueName ?? (
               <Badge variant="outline">auto</Badge>
             )
           }
           mono
-          copyText={vendorConfig.shadowQueueName ?? undefined}
+          copyText={stream.vendorConfig.shadowQueueName ?? undefined}
         />
         <KeyValueRow
           label="Correlation Header"
           value={
-            vendorConfig.correlationHeader ?? (
+            stream.correlationKeyName ?? (
               <Badge variant="outline">default</Badge>
             )
           }
           mono
-          copyText={vendorConfig.correlationHeader ?? undefined}
+          copyText={stream.correlationKeyName ?? undefined}
         />
       </div>
     );
   }
 
-  if (isPostgresVendorConfig(vendorConfig)) {
+  if (isPostgresVendorConfig(stream.vendorConfig)) {
     return (
       <div className="space-y-3">
         <KeyValueRow
           label="Schema"
           value={
-            vendorConfig.schema ?? <Badge variant="outline">default</Badge>
+            stream.vendorConfig.schema ?? (
+              <Badge variant="outline">default</Badge>
+            )
           }
           mono
         />
         <KeyValueRow
           label="Table"
-          value={vendorConfig.table ?? <Badge variant="outline">default</Badge>}
+          value={
+            stream.technicalName ?? <Badge variant="outline">default</Badge>
+          }
           mono
         />
         <KeyValueRow
           label="Correlation Column"
           value={
-            vendorConfig.correlationColumn ?? (
+            stream.correlationKeyName ?? (
               <Badge variant="outline">not set</Badge>
             )
           }
           mono
-          copyText={vendorConfig.correlationColumn ?? undefined}
+          copyText={stream.correlationKeyName ?? undefined}
         />
         <KeyValueRow
           label="Time Column"
           value={
-            vendorConfig.timeColumn ?? <Badge variant="outline">not set</Badge>
+            stream.vendorConfig.timeColumn ?? (
+              <Badge variant="outline">not set</Badge>
+            )
           }
           mono
-          copyText={vendorConfig.timeColumn ?? undefined}
+          copyText={stream.vendorConfig.timeColumn ?? undefined}
         />
       </div>
     );
   }
 
-  return <JsonBlock value={vendorConfig} />;
+  return <JsonBlock value={stream.vendorConfig} />;
 }
 
 // --- Decoding section ---
@@ -814,9 +820,7 @@ export function StreamOverviewPage({ streamId }: Props) {
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="p-6 space-y-5">
-                        <StreamVendorConfigSection
-                          vendorConfig={stream.vendorConfig}
-                        />
+                        <StreamVendorConfigSection stream={stream} />
 
                         <Separator />
 

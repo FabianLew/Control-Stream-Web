@@ -23,11 +23,12 @@ type WorkspaceContextValue = {
   currentWorkspace?: WorkspaceDto;
   workspaces: WorkspaceDto[];
   switchWorkspace: (workspaceId: string) => Promise<void>;
+  isSwitchingWorkspace: boolean;
   authMode: "jwt" | "none";
 };
 
 const WorkspaceContext = React.createContext<WorkspaceContextValue | null>(
-  null
+  null,
 );
 
 export function useWorkspaceContext(): WorkspaceContextValue {
@@ -49,6 +50,8 @@ export function WorkspaceProvider(props: { children: React.ReactNode }) {
 
   const token = getAccessToken();
   const isAuthenticated = authMode === "none" ? true : Boolean(token);
+
+  const [isSwitchingWorkspace, setIsSwitchingWorkspace] = React.useState(false);
 
   // jwt-mode: jeśli brak tokenu -> redirect na landing
   React.useEffect(() => {
@@ -81,18 +84,6 @@ export function WorkspaceProvider(props: { children: React.ReactNode }) {
     retry: false,
   });
 
-  async function switchWorkspace(workspaceId: string) {
-    if (authMode !== "jwt") return;
-
-    const res = await setCurrentWorkspace(workspaceId);
-    setAccessToken(res.accessToken);
-
-    await queryClient.invalidateQueries({ queryKey: ["me"] });
-    await queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-
-    router.refresh();
-  }
-
   // jwt-mode: jak token padł -> redirect
   React.useEffect(() => {
     if (authMode !== "jwt") return;
@@ -116,14 +107,35 @@ export function WorkspaceProvider(props: { children: React.ReactNode }) {
     router,
   ]);
 
+  async function switchWorkspace(workspaceId: string) {
+    if (authMode !== "jwt") return;
+    if (isSwitchingWorkspace) return;
+
+    setIsSwitchingWorkspace(true);
+    try {
+      // backend powinien zwrócić nowy JWT już "osadzony" w nowym workspace
+      const res = await setCurrentWorkspace(workspaceId);
+      setAccessToken(res.accessToken);
+
+      // ważne: po zmianie workspace najlepiej wyczyścić cache, żeby nie pokazać danych z poprzedniego
+      queryClient.clear();
+
+      // router.refresh żeby server components / layouts dostały nowy token
+      router.refresh();
+    } finally {
+      setIsSwitchingWorkspace(false);
+    }
+  }
+
   const value: WorkspaceContextValue = {
     authMode,
     isAuthenticated,
     meEmail: authMode === "jwt" ? meQuery.data?.email : undefined,
     currentWorkspace:
       authMode === "jwt" ? currentWorkspaceQuery.data : undefined,
-    workspaces: authMode === "jwt" ? workspacesQuery.data ?? [] : [],
+    workspaces: authMode === "jwt" ? (workspacesQuery.data ?? []) : [],
     switchWorkspace,
+    isSwitchingWorkspace,
   };
 
   return (
