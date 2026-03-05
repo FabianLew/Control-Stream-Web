@@ -127,7 +127,13 @@ export function ensureVendorConfigForType(
   current?: StreamVendorConfigDto | null
 ): StreamVendorConfigDto {
   if (isVendor(type, VENDOR_META.KAFKA)) {
-    if (current && isVendor(current.vendor, VENDOR_META.KAFKA)) return current;
+    if (current && isVendor(current.vendor, VENDOR_META.KAFKA)) {
+      return {
+        vendor: "KAFKA",
+        // null is not accepted by z.string().optional() — normalize to undefined
+        consumerGroupId: toOptionalString((current as any).consumerGroupId),
+      };
+    }
     return { vendor: "KAFKA" };
   }
 
@@ -165,7 +171,15 @@ export function ensureVendorConfigForType(
   }
 
   // POSTGRES
-  if (current && isVendor(current.vendor, VENDOR_META.POSTGRES)) return current;
+  if (current && isVendor(current.vendor, VENDOR_META.POSTGRES)) {
+    const c = current as any;
+    return {
+      vendor: "POSTGRES",
+      // null is not accepted by z.string().optional() — normalize to undefined
+      schema: toOptionalString(c.schema),
+      timeColumn: toOptionalString(c.timeColumn),
+    };
+  }
   return { vendor: "POSTGRES", schema: "public" };
 }
 
