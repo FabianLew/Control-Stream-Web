@@ -14,5 +14,4 @@ export type ViewerMessage = {
   payloadFormat: ViewerPayloadFormat;
 
   headers: Record<string, any>;
-  replayDisabled?: boolean; // na razie true
 };

@@ -227,10 +227,8 @@ function ensureVendorConfigForType(
         routingKey: c.routingKey == null ? undefined : String(c.routingKey),
         prefetchCount:
           c.prefetchCount == null ? undefined : Number(c.prefetchCount),
-        correlationHeader:
-          c.correlationHeader == null ? undefined : String(c.correlationHeader),
 
-        // NEW: search shadow retention (optional)
+        // search shadow retention (optional)
         searchShadowTtlMs:
           c.searchShadowTtlMs == null ? undefined : Number(c.searchShadowTtlMs),
         searchShadowMaxLength:
@@ -238,7 +236,7 @@ function ensureVendorConfigForType(
             ? undefined
             : Number(c.searchShadowMaxLength),
 
-        // NEW: optional custom name for SEARCH shadow
+        // optional custom name for SEARCH shadow
         searchShadowQueueName:
           c.searchShadowQueueName == null ? undefined : c.searchShadowQueueName,
       } as any;
@@ -250,8 +248,6 @@ function ensureVendorConfigForType(
       exchange: "",
       routingKey: "",
       prefetchCount: undefined,
-      correlationHeader: undefined,
-
       searchShadowTtlMs: undefined,
       searchShadowMaxLength: undefined,
       searchShadowQueueName: undefined,
@@ -289,7 +285,6 @@ function normalizeVendorConfig(
       exchange: String(v.exchange ?? "").trim(), // required
       routingKey: String(v.routingKey ?? "").trim(), // required
       prefetchCount: toOptionalNumber(v.prefetchCount),
-      correlationHeader: toOptionalString(v.correlationHeader),
 
       // Search shadow tuning (optional)
       searchShadowTtlMs: toOptionalNumber((v as any).searchShadowTtlMs),
@@ -363,46 +358,13 @@ export function StreamForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [displayNameTouched, setDisplayNameTouched] = useState(false);
-
-  const [rabbitConfirmOpen, setRabbitConfirmOpen] = useState(false);
-  const pendingPayloadRef = useRef<
-    CreateStreamCommand | EditStreamCommand | null
-  >(null);
-  const rabbitConfirmAcknowledgedRef = useRef(false); // optional: don't ask twice in one form session
-
-  const schema = useMemo(
-    () => (mode === "edit" ? editStreamSchema : createStreamSchema),
-    [mode],
-  );
-
-  const form = useForm<StreamFormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: DEFAULT_FORM_VALUES,
-    mode: "onChange",
-  });
-
-  // load connections once
-  useEffect(() => {
-    getConnectionsOverview()
-      .then(setConnections)
-      .catch(console.error)
-      .finally(() => setIsLoadingConn(false));
-  }, []);
-
-  /**
-   * Single init/reset per mode + stream.id (no fighting effects).
-   */
-  const lastInitKeyRef = useRef<string>("");
-
-  useEffect(() => {
-    const key = mode === "edit" ? `edit:${stream?.id ?? "none"}` : "create";
-    if (lastInitKeyRef.current === key) return;
-
-    if (mode === "edit") {
-      if (!stream) return;
-
-      const initial: StreamFormValues = {
+  // For edit mode: compute initial form values synchronously at mount time.
+  // This avoids useEffect race conditions where other effects fire before
+  // the async init effect runs, seeing stale DEFAULT_FORM_VALUES.
+  // EditStreamDialog keys StreamForm by stream.id so this runs once per stream.
+  const initialFormValues = useMemo((): StreamFormValues => {
+    if (mode === "edit" && stream) {
+      return {
         ...DEFAULT_FORM_VALUES,
         name: stream.name ?? "",
         type: stream.type,
@@ -422,24 +384,40 @@ export function StreamForm({
         ) as any,
         decoding: normalizeDecoding(stream.decoding) as any,
       };
-
-      const normalized = normalizeFormPayload(initial as any) as any;
-
-      form.reset(normalized as any, { keepDirty: false, keepTouched: false });
-
-      setDisplayNameTouched(true);
-      lastInitKeyRef.current = key;
-      return;
     }
+    return DEFAULT_FORM_VALUES;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — computed once on mount
 
-    // create init
-    form.reset(DEFAULT_FORM_VALUES as any, {
-      keepDirty: false,
-      keepTouched: false,
-    });
-    setDisplayNameTouched(false);
-    lastInitKeyRef.current = key;
-  }, [mode, stream?.id, stream, form]);
+  // In edit mode, display name is already set from the stream — don't auto-fill.
+  const [displayNameTouched, setDisplayNameTouched] = useState(
+    mode === "edit",
+  );
+
+  const [rabbitConfirmOpen, setRabbitConfirmOpen] = useState(false);
+  const pendingPayloadRef = useRef<
+    CreateStreamCommand | EditStreamCommand | null
+  >(null);
+  const rabbitConfirmAcknowledgedRef = useRef(false); // optional: don't ask twice in one form session
+
+  const schema = useMemo(
+    () => (mode === "edit" ? editStreamSchema : createStreamSchema),
+    [mode],
+  );
+
+  const form = useForm<StreamFormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: initialFormValues,
+    mode: "onChange",
+  });
+
+  // load connections once
+  useEffect(() => {
+    getConnectionsOverview()
+      .then(setConnections)
+      .catch(console.error)
+      .finally(() => setIsLoadingConn(false));
+  }, []);
 
   const selectedConnectionId = form.watch("connectionId");
   const watchedType = form.watch("type") as StreamType;
@@ -504,7 +482,6 @@ export function StreamForm({
             exchange: "",
             routingKey: "",
             prefetchCount: undefined,
-            correlationHeader: undefined,
             searchShadowTtlMs: undefined,
             searchShadowMaxLength: undefined,
             searchShadowQueueName: undefined,

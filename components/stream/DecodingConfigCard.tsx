@@ -130,8 +130,15 @@ export function DecodingConfigCard({ form }: Props) {
 
   const decodingEnabled = schemaSourceValue !== "NONE";
 
-  // remember last enabled source (so toggle ON doesn't force SCHEMA_REGISTRY always)
+  // remember last enabled source (so toggle ON restores the correct source)
   const lastEnabledSourceRef = React.useRef<SchemaSource>("SCHEMA_REGISTRY");
+  // Track the last non-NONE source so toggling OFF/ON restores it correctly
+  React.useEffect(() => {
+    if (schemaSourceValue !== "NONE") {
+      lastEnabledSourceRef.current = schemaSourceValue;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schemaSourceValue]);
   // ✅ keep RHF values valid, but DO NOT override transient undefined during reset
   React.useEffect(() => {
     if (schemaSourceRaw === undefined) return; // do not fight StreamForm.reset()

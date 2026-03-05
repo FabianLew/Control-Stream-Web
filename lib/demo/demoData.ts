@@ -157,9 +157,7 @@ export const demoStreams: UnifiedStreamDto[] = [
     correlationKeyName: "x-correlation-id",
     vendorConfig: {
       vendor: "KAFKA",
-      topic: "orders.v1",
       consumerGroupId: "controlstream-demo",
-      correlationHeader: "x-correlation-id",
     },
     decoding: decodingSchemaRegistry,
     createdAt: isoMinutesAgo(60 * 3),
@@ -180,7 +178,6 @@ export const demoStreams: UnifiedStreamDto[] = [
       routingKey: "payments.created",
       prefetchCount: 100,
       shadowQueueName: "payments.shadow",
-      correlationHeader: "x-correlation-id",
     },
     decoding: decodingNone,
     createdAt: isoMinutesAgo(60 * 6),
@@ -198,8 +195,6 @@ export const demoStreams: UnifiedStreamDto[] = [
     vendorConfig: {
       vendor: "POSTGRES",
       schema: "public",
-      table: "outbox_events",
-      correlationColumn: "correlation_id",
       timeColumn: "created_at",
     },
     decoding: decodingFilesProto,
@@ -441,7 +436,7 @@ export function demoLiveBatches(
           correlationId,
           payload,
           metadata: {
-            topic: (stream.vendorConfig as any).topic ?? "demo.topic",
+            topic: stream.technicalName,
             partition: 1,
             offset: 1000 + sequence,
             key: correlationId,

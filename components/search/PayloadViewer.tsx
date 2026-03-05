@@ -41,7 +41,6 @@ export function PayloadViewer(props: {
       payloadFormat: m.payloadFormat ?? "UNKNOWN",
 
       headers: safeParseHeaders(m.headers),
-      replayDisabled: true,
     };
   }, [props.message]);
 

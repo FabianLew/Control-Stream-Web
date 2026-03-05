@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, Network, Activity, Package, Cable } from "lucide-react";
+import { Search, Network, Activity, Package, Cable, SendHorizonal } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { WorkspaceSwitcher } from "@/components/workspace/WorkspaceSwitcher";
@@ -8,6 +8,7 @@ import { WorkspaceSwitcher } from "@/components/workspace/WorkspaceSwitcher";
 const navItems = [
   { name: "Live", href: "/live", icon: Cable },
   { name: "Search", href: "/search", icon: Search },
+  { name: "Send", href: "/send", icon: SendHorizonal },
   { name: "Connections", href: "/connections", icon: Network },
   { name: "Streams", href: "/streams", icon: Activity },
   { name: "Schema Bundles", href: "/schema-bundles", icon: Package },

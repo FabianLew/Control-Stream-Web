@@ -69,6 +69,7 @@ export function EditStreamDialog({
 
         <div className="px-6 py-6">
           <StreamForm
+            key={open ? stream.id : undefined}
             mode="edit"
             stream={stream}
             navigateAfterSubmit={false}

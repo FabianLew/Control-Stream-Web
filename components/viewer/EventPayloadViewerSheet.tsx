@@ -23,7 +23,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CopyButton } from "@/components/shared/CopyButton";
 import type { ViewerMessage } from "@/types/viewer";
-import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge"; // <- popraw ścieżkę jeśli inna
+import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
+import { ReplayMessageDialog } from "@/components/viewer/ReplayMessageDialog";
 
 function looksLikeJson(text: string) {
   const t = text?.trim?.() ?? "";
@@ -52,6 +53,7 @@ export function EventPayloadViewerSheet(props: {
   const { message, isOpen, onClose } = props;
 
   const [tab, setTab] = useState<ViewerTab>("pretty");
+  const [replayOpen, setReplayOpen] = useState(false);
   const panelScrollRef = useRef<HTMLDivElement>(null);
 
   const messageId = message?.messageId ?? "";
@@ -146,6 +148,14 @@ export function EventPayloadViewerSheet(props: {
           </SheetHeader>
         </div>
 
+        <ReplayMessageDialog
+          isOpen={replayOpen}
+          onClose={() => setReplayOpen(false)}
+          streamId={streamId}
+          initialPayload={prettyText || payload}
+          initialHeaders={headersObj as Record<string, string>}
+        />
+
         {/* CONTENT */}
         <div className="flex-1 p-6 min-h-0 flex flex-col">
           <Tabs
@@ -171,7 +181,8 @@ export function EventPayloadViewerSheet(props: {
                   variant="outline"
                   size="sm"
                   className="h-8 gap-2"
-                  disabled={message.replayDisabled ?? true}
+                  onClick={() => setReplayOpen(true)}
+                  disabled={streamType !== "KAFKA" && streamType !== "RABBIT"}
                 >
                   <Play size={12} /> Replay
                 </Button>
