@@ -260,9 +260,11 @@ export const ConnectionDetail = ({ id }: Props) => {
               {testMutation.isPending ? "Checking..." : "Run Health Check"}
             </Button>
 
-            <Button variant="outline" className="shadow-sm gap-2">
-              <Settings2 size={16} />
-              Configure
+            <Button variant="outline" className="shadow-sm gap-2" asChild>
+              <Link href={`/connections/${id}/configure`}>
+                <Settings2 size={16} />
+                Configure
+              </Link>
             </Button>
 
             <Button

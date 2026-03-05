@@ -710,8 +710,10 @@ export function StreamOverviewPage({ streamId }: Props) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" className="gap-2 shadow-sm">
-                <Settings2 size={16} /> Configure Stream
+              <Button variant="outline" className="gap-2 shadow-sm" asChild>
+                <Link href={`/streams/${streamId}/configure`}>
+                  <Settings2 size={16} /> Configure Stream
+                </Link>
               </Button>
 
               <Button

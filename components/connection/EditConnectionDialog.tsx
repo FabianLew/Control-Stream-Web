@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -9,12 +8,12 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { ConnectionDto } from "@/types/connection";
-import {
-  getConnection,
-  updateConnectionById,
-} from "@/lib/api/connections";
-import type { CreateConnectionFormValues } from "@/components/lib/schemas";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+
+import { getConnection, updateConnectionById } from "@/lib/api/connections";
+import type { ConnectionUpsertPayload } from "@/types/connection";
+import { handleValidSubmit } from "@/components/lib/formError";
 
 import { ConnectionForm } from "@/components/connection/ConnectionForm";
 
@@ -29,36 +28,45 @@ export function EditConnectionDialog({
   open,
   onOpenChange,
 }: EditConnectionDialogProps) {
-  const [connection, setConnection] = useState<ConnectionDto | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!open || !connectionId) return;
+  const { data: connection, isLoading, isError } = useQuery({
+    queryKey: ["connection-detail", connectionId],
+    queryFn: () => getConnection(connectionId!),
+    enabled: !!connectionId && open,
+    staleTime: 0,
+  });
 
-    setLoading(true);
-    setErr(null);
-    setConnection(null);
+  const updateMutation = useMutation({
+    mutationFn: (payload: ConnectionUpsertPayload) =>
+      updateConnectionById(connectionId!, payload),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["connections"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["connection-detail", connectionId],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["connection", connectionId],
+      });
 
-    getConnection(connectionId)
-      .then(setConnection)
-      .catch((e) => setErr(e instanceof Error ? e.message : "Unknown error"))
-      .finally(() => setLoading(false));
-  }, [open, connectionId]);
+      // Close dialog first, then show toast (next frame)
+      onOpenChange(false);
+      requestAnimationFrame(() => {
+        handleValidSubmit({
+          title: "Connection Updated Successfully",
+          description: "Your changes have been saved.",
+        });
+      });
+    },
+    onError: () => {
+      toast.error("Connection not saved", {
+        description: "Something went wrong. Please check inputs and try again.",
+      });
+    },
+  });
 
-  const initialData = useMemo(() => {
-    if (!connection) return null;
-    return {
-      id: connection.id,
-      name: connection.name,
-      type: connection.type as any,
-      config: connection.config as any,
-    };
-  }, [connection]);
-
-  const submit = async (payload: CreateConnectionFormValues) => {
-    if (!connectionId) return;
-    await updateConnectionById(connectionId, payload);
+  const submit = async (payload: ConnectionUpsertPayload) => {
+    await updateMutation.mutateAsync(payload);
   };
 
   return (
@@ -74,22 +82,25 @@ export function EditConnectionDialog({
         </div>
 
         <div className="px-6 py-6">
-          {loading && (
+          {isLoading && (
             <div className="space-y-3">
               <Skeleton className="h-10 w-1/2" />
               <Skeleton className="h-64 w-full" />
             </div>
           )}
 
-          {err && <div className="text-sm text-destructive">{err}</div>}
+          {isError && (
+            <div className="text-sm text-destructive">
+              Failed to load connection data. Please try again.
+            </div>
+          )}
 
-          {initialData && (
+          {connection && (
             <ConnectionForm
+              key={open ? connectionId! : undefined}
               mode="edit"
-              initialData={initialData}
-              navigateAfterSubmit={false}
+              initialData={connection}
               onSubmit={submit}
-              onSubmittedSuccessfully={() => onOpenChange(false)}
             />
           )}
         </div>

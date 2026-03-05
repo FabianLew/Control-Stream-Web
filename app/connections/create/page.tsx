@@ -3,16 +3,21 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 import { ConnectionForm } from "@/components/connection/ConnectionForm";
-import type { CreateConnectionFormValues } from "@/components/lib/schemas";
+import type { ConnectionUpsertPayload } from "@/types/connection";
 import { createConnection } from "@/lib/api/connections";
 
 export default function CreateConnectionPage() {
   const router = useRouter();
 
-  const submit = async (payload: CreateConnectionFormValues) => {
+  const submit = async (payload: ConnectionUpsertPayload) => {
     await createConnection(payload);
+
+    toast.success("Connection created successfully", {
+      description: "The new connection is ready to use.",
+    });
 
     router.push("/connections");
     router.refresh();

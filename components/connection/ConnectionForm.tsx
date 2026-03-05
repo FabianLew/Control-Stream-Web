@@ -5,10 +5,8 @@ import { useForm, type SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
-import {
-  createConnectionSchema,
-  type CreateConnectionFormValues,
-} from "@/components/lib/schemas";
+import { createConnectionSchema } from "@/components/lib/schemas";
+import type { ConnectionDto, ConnectionUpsertPayload } from "@/types/connection";
 
 import {
   Card,
@@ -30,7 +28,7 @@ import { Separator } from "@/components/ui/separator";
 import { StreamTypeBadge } from "@/components/shared/StreamTypeBadge";
 import { handleInvalidSubmit } from "@/components/lib/formError";
 
-import { Loader2, Save, Info, Code, PenLine } from "lucide-react";
+import { Loader2, Save, Info, Code, PenLine, X } from "lucide-react";
 import {
   getVendorMeta,
   VENDOR_OPTIONS,
@@ -38,6 +36,20 @@ import {
   isVendor,
   VENDOR_META,
 } from "@/components/lib/vendors";
+
+import {
+  type ConnectionFormValues,
+  DEFAULT_KAFKA_CONNECTION_VALUES,
+  defaultValuesForType,
+  mapConnectionDtoToFormValues,
+  mapFormValuesToCreateCommand,
+  mapFormValuesToUpdateCommand,
+  parsePostgresDatabaseName,
+  buildKafkaBootstrapServers,
+  buildPostgresJdbcUrl,
+  toRequiredString,
+  toRequiredNumber,
+} from "@/lib/connections/form-mappers";
 
 type ConnectionType = KnownVendor;
 
@@ -52,270 +64,97 @@ type Mode = "create" | "edit";
 
 type Props = {
   mode: Mode;
-  initialData?: (CreateConnectionFormValues & { id: string }) | null;
-  navigateAfterSubmit?: boolean;
-  onSubmit: (payload: CreateConnectionFormValues) => Promise<void>;
-  onSubmittedSuccessfully?: () => void; // e.g. close dialog in edit
+  initialData?: ConnectionDto | null;
+  onSubmit: (payload: ConnectionUpsertPayload) => Promise<void>;
+  onSubmittedSuccessfully?: () => void;
+  onCancel?: () => void;
 };
-
-const defaultKafkaValues: CreateConnectionFormValues = {
-  name: "",
-  type: "KAFKA",
-  config: {
-    vendor: "KAFKA",
-    host: "localhost",
-    port: 9092,
-    bootstrapServers: "localhost:9092",
-    securityProtocol: "PLAINTEXT",
-    saslMechanism: undefined,
-    saslJaasConfig: undefined,
-    extra: {},
-  },
-};
-
-const defaultRabbitValues: CreateConnectionFormValues = {
-  name: "",
-  type: "RABBIT",
-  config: {
-    vendor: "RABBIT",
-    host: "localhost",
-    port: 5672,
-    username: "guest",
-    password: "",
-    virtualHost: "/",
-  },
-};
-
-const defaultPostgresValues: CreateConnectionFormValues = {
-  name: "",
-  type: "POSTGRES",
-  config: {
-    vendor: "POSTGRES",
-    host: "localhost",
-    port: 5432,
-    jdbcUrl: "",
-    username: "postgres",
-    password: "",
-  },
-};
-
-function defaultsForType(type: ConnectionType): CreateConnectionFormValues {
-  if (isVendor(type, VENDOR_META.KAFKA)) return defaultKafkaValues;
-  if (isVendor(type, VENDOR_META.RABBIT)) return defaultRabbitValues;
-  return defaultPostgresValues;
-}
-
-function toOptionalString(value: unknown): string | undefined {
-  if (value == null) return undefined;
-  const trimmed = String(value).trim();
-  return trimmed.length ? trimmed : undefined;
-}
-
-function toRequiredString(value: unknown, fallback: string): string {
-  return toOptionalString(value) ?? fallback;
-}
-
-function toRequiredNumber(value: unknown, fallback: number): number {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0)
-    return value;
-  const parsed = Number(String(value ?? "").trim());
-  if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  return fallback;
-}
-
-function buildKafkaBootstrapServers(host: string, port: number): string {
-  return `${host}:${port}`;
-}
-
-function buildPostgresJdbcUrl(host: string, port: number, dbName: string) {
-  const safeDb = toRequiredString(dbName, "postgres");
-  return `jdbc:postgresql://${host}:${port}/${safeDb}`;
-}
-
-/**
- * Normalizacja payloadu:
- * - trim stringów
- * - "" -> undefined dla optional
- * - edit: jeżeli password puste => usuwamy (żeby nie nadpisać)
- * - Kafka: bootstrapServers zawsze spójne z host/port
- * - Postgres: jdbcUrl zawsze spójne z host/port + dbName (użytkownik edytuje dbName, nie jdbcUrl)
- */
-function normalizeConnectionPayload(
-  mode: Mode,
-  raw: CreateConnectionFormValues,
-  postgresDatabaseName: string
-): CreateConnectionFormValues {
-  const type = raw.type as ConnectionType;
-  const name = toRequiredString(raw.name, "");
-
-  if (isVendor(type, VENDOR_META.KAFKA)) {
-    const host = toRequiredString((raw.config as any).host, "localhost");
-    const port = toRequiredNumber((raw.config as any).port, 9092);
-
-    const securityProtocol =
-      toOptionalString((raw.config as any).securityProtocol) ?? "PLAINTEXT";
-    const saslMechanism = toOptionalString((raw.config as any).saslMechanism);
-    const saslJaasConfig = toOptionalString((raw.config as any).saslJaasConfig);
-
-    const bootstrapServers = buildKafkaBootstrapServers(host, port);
-
-    const extra =
-      (raw.config as any).extra && typeof (raw.config as any).extra === "object"
-        ? (raw.config as any).extra
-        : undefined;
-
-    return {
-      name,
-      type: "KAFKA",
-      config: {
-        vendor: "KAFKA",
-        host,
-        port,
-        bootstrapServers,
-        securityProtocol,
-        saslMechanism,
-        saslJaasConfig,
-        extra,
-      } as any,
-    };
-  }
-
-  if (isVendor(type, VENDOR_META.RABBIT)) {
-    const host = toRequiredString((raw.config as any).host, "localhost");
-    const port = toRequiredNumber((raw.config as any).port, 5672);
-    const username = toRequiredString((raw.config as any).username, "guest");
-
-    const passwordRaw = toOptionalString((raw.config as any).password);
-    const virtualHost = toRequiredString((raw.config as any).virtualHost, "/");
-
-    const config: any = {
-      vendor: "RABBIT",
-      host,
-      port,
-      username,
-      virtualHost,
-    };
-
-    // edit: password pusty => nie wysyłamy
-    if (mode === "create") {
-      config.password = passwordRaw ?? "";
-    } else {
-      if (passwordRaw) config.password = passwordRaw;
-    }
-
-    return { name, type: "RABBIT", config };
-  }
-
-  // POSTGRES
-  const host = toRequiredString((raw.config as any).host, "localhost");
-  const port = toRequiredNumber((raw.config as any).port, 5432);
-  const username = toRequiredString((raw.config as any).username, "postgres");
-
-  const jdbcUrl = buildPostgresJdbcUrl(host, port, postgresDatabaseName);
-
-  const passwordRaw = toOptionalString((raw.config as any).password);
-
-  const config: any = {
-    vendor: "POSTGRES",
-    host,
-    port,
-    jdbcUrl,
-    username,
-  };
-
-  if (mode === "create") {
-    config.password = passwordRaw ?? "";
-  } else {
-    if (passwordRaw) config.password = passwordRaw;
-  }
-
-  return { name, type: "POSTGRES", config };
-}
-
-function previewJson(
-  values: CreateConnectionFormValues,
-  postgresDatabaseName: string
-) {
-  const normalized = normalizeConnectionPayload(
-    "create",
-    values,
-    postgresDatabaseName
-  );
-
-  // mask passwords
-  const masked: any = structuredClone(normalized);
-  if (masked?.config?.password) masked.config.password = "********";
-
-  return JSON.stringify(masked, null, 2);
-}
 
 export function ConnectionForm({
   mode,
   initialData,
-  navigateAfterSubmit = mode === "create",
   onSubmit,
   onSubmittedSuccessfully,
+  onCancel,
 }: Props) {
   const isEditMode = mode === "edit";
-
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [postgresDatabaseName, setPostgresDatabaseName] = useState("postgres");
+
+  // ─── Synchronous init (useMemo, empty deps — runs once at mount) ──────────
+  const initialFormValues = useMemo((): ConnectionFormValues => {
+    if (mode === "edit" && initialData) {
+      return mapConnectionDtoToFormValues(initialData);
+    }
+    return DEFAULT_KAFKA_CONNECTION_VALUES;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — captured once at mount
+
+  // postgresDatabaseName is a UI-only field derived from jdbcUrl
+  const [postgresDatabaseName, setPostgresDatabaseName] = useState<string>(
+    () => {
+      if (mode === "edit" && initialData?.type === "POSTGRES") {
+        return parsePostgresDatabaseName(
+          (initialData.config as any).jdbcUrl
+        );
+      }
+      return "postgres";
+    }
+  );
 
   const schema = useMemo(() => createConnectionSchema, []);
 
-  const form = useForm<CreateConnectionFormValues>({
+  const form = useForm<ConnectionFormValues>({
     resolver: zodResolver(schema),
-    defaultValues: initialData ?? defaultKafkaValues,
+    defaultValues: initialFormValues,
     mode: "onChange",
   });
 
+  // Guard ref — pre-populated so the first useEffect cycle is a no-op
+  // (useMemo already handled the initial connection at mount)
+  const lastInitConnectionIdRef = useRef<string | null>(
+    mode === "edit" && initialData ? initialData.id : null
+  );
+
+  // Secondary reset — fires only when a different connection is loaded after mount
+  useEffect(() => {
+    if (mode !== "edit" || !initialData) return;
+    if (lastInitConnectionIdRef.current === initialData.id) return;
+    lastInitConnectionIdRef.current = initialData.id;
+
+    if (initialData.type === "POSTGRES") {
+      setPostgresDatabaseName(
+        parsePostgresDatabaseName((initialData.config as any).jdbcUrl)
+      );
+    } else {
+      setPostgresDatabaseName("postgres");
+    }
+
+    form.reset(mapConnectionDtoToFormValues(initialData));
+  }, [mode, initialData, form]);
+
+  // ─── Derived watched values ───────────────────────────────────────────────
   const selectedType = form.watch("type") as ConnectionType;
   const configHost = form.watch("config.host");
   const configPort = form.watch("config.port");
 
-  // init postgres db name from jdbcUrl once (edit case)
-  const didInitPostgresDbRef = useRef(false);
-  useEffect(() => {
-    if (!isVendor(selectedType, VENDOR_META.POSTGRES)) return;
-    if (didInitPostgresDbRef.current) return;
-
-    const current = String(form.getValues("config.jdbcUrl") ?? "").trim();
-    if (!current) {
-      didInitPostgresDbRef.current = true;
-      return;
-    }
-
-    const match = /jdbc:postgresql:\/\/[^/]+\/([^?]+).*/.exec(current);
-    if (match?.[1]) setPostgresDatabaseName(match[1]);
-
-    didInitPostgresDbRef.current = true;
-  }, [selectedType, form]);
-
-  // derived config: Kafka bootstrapServers (read-only field)
+  // Sync Kafka bootstrapServers (derived read-only field)
   useEffect(() => {
     if (!isVendor(selectedType, VENDOR_META.KAFKA)) return;
-
     const host = toRequiredString(configHost, "localhost");
     const port = toRequiredNumber(configPort, 9092);
-
     form.setValue(
       "config.bootstrapServers",
       buildKafkaBootstrapServers(host, port),
-      {
-        shouldDirty: true,
-        shouldValidate: true,
-      }
+      { shouldDirty: true, shouldValidate: true }
     );
   }, [selectedType, configHost, configPort, form]);
 
-  // derived config: Postgres jdbcUrl (read-only field)
+  // Sync Postgres jdbcUrl (derived read-only field)
   useEffect(() => {
     if (!isVendor(selectedType, VENDOR_META.POSTGRES)) return;
-
     const host = toRequiredString(configHost, "localhost");
     const port = toRequiredNumber(configPort, 5432);
     const jdbcUrl = buildPostgresJdbcUrl(host, port, postgresDatabaseName);
-
     form.setValue("config.jdbcUrl", jdbcUrl, {
       shouldDirty: true,
       shouldValidate: true,
@@ -328,56 +167,31 @@ export function ConnectionForm({
   );
   const vendorTitle = vendorMeta.connectionTitle;
 
+  // ─── Type switch ──────────────────────────────────────────────────────────
   const handleTypeChange = (val: ConnectionType) => {
     const currentName = form.getValues("name");
-    const nextDefaults = defaultsForType(val);
-
-    // reset everything except name
+    const nextDefaults = defaultValuesForType(val);
     form.reset({ ...nextDefaults, name: currentName } as any, {
       keepDirty: false,
       keepTouched: false,
     });
-
-    // reset postgres db helper when switching vendors
-    didInitPostgresDbRef.current = false;
-    if (isVendor(val, VENDOR_META.POSTGRES)) setPostgresDatabaseName("postgres");
+    if (isVendor(val, VENDOR_META.POSTGRES)) {
+      setPostgresDatabaseName("postgres");
+    }
   };
 
   const configErrors = form.formState.errors?.config as any;
 
-  const submit: SubmitHandler<CreateConnectionFormValues> = async (data) => {
+  // ─── Submit ───────────────────────────────────────────────────────────────
+  const submit: SubmitHandler<ConnectionFormValues> = async (data) => {
     setIsSubmitting(true);
-
     try {
-      const normalized = normalizeConnectionPayload(
-        mode,
-        data,
-        postgresDatabaseName
-      );
+      const command =
+        mode === "create"
+          ? mapFormValuesToCreateCommand(data, postgresDatabaseName)
+          : mapFormValuesToUpdateCommand(data, postgresDatabaseName);
 
-      // validate normalized against schema (prevents "preview ok but submit blocked")
-      const parsed = schema.safeParse(normalized);
-      if (!parsed.success) {
-        form.reset(normalized as any, { keepDirty: true, keepTouched: true });
-        await form.trigger();
-        setIsSubmitting(false);
-        return;
-      }
-
-      await onSubmit(parsed.data);
-
-      // success toast (green)
-      toast.success(
-        isEditMode
-          ? "Connection updated successfully"
-          : "Connection created successfully",
-        {
-          description: isEditMode
-            ? "Your changes were saved."
-            : "The new connection is ready to use.",
-        }
-      );
-
+      await onSubmit(command);
       onSubmittedSuccessfully?.();
     } catch (e) {
       console.error(e);
@@ -389,11 +203,17 @@ export function ConnectionForm({
     }
   };
 
+  // ─── JSON Preview ─────────────────────────────────────────────────────────
   const values = form.watch();
-  const preview = useMemo(
-    () => previewJson(values, postgresDatabaseName),
-    [values, postgresDatabaseName]
-  );
+  const preview = useMemo(() => {
+    const normalized =
+      mode === "create"
+        ? mapFormValuesToCreateCommand(values, postgresDatabaseName)
+        : mapFormValuesToUpdateCommand(values, postgresDatabaseName);
+    const masked: any = structuredClone(normalized);
+    if (masked?.config?.password) masked.config.password = "********";
+    return JSON.stringify(masked, null, 2);
+  }, [values, postgresDatabaseName, mode]);
 
   return (
     <form
@@ -448,8 +268,6 @@ export function ConnectionForm({
                   onValueChange={(val) =>
                     handleTypeChange(val as ConnectionType)
                   }
-                  // Jeśli chcesz zablokować vendor w edit:
-                  // disabled={isEditMode}
                 >
                   <SelectTrigger className="bg-background">
                     <SelectValue placeholder="Select type" />
@@ -506,7 +324,7 @@ export function ConnectionForm({
             </CardHeader>
 
             <CardContent className="space-y-6">
-              {/* HOST & PORT */}
+              {/* HOST & PORT — shared across all vendor types */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="col-span-2 space-y-2">
                   <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
@@ -543,192 +361,33 @@ export function ConnectionForm({
 
               <Separator />
 
-              {/* KAFKA */}
+              {/* Vendor-specific sections */}
               {isVendor(selectedType, VENDOR_META.KAFKA) && (
-                <div className="space-y-4 animate-in fade-in">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                      Bootstrap Servers
-                    </label>
-                    <Input
-                      {...form.register("config.bootstrapServers")}
-                      readOnly
-                      className="bg-muted/20 font-mono text-sm"
-                    />
-                    {configErrors?.bootstrapServers && (
-                      <p className="text-destructive text-xs">
-                        {configErrors.bootstrapServers.message}
-                      </p>
-                    )}
-                    <p className="text-[11px] text-muted-foreground">
-                      Auto-generated from Host and Port.
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                      Security Protocol
-                    </label>
-                    <Input
-                      {...form.register("config.securityProtocol")}
-                      placeholder="PLAINTEXT / SSL / SASL_SSL ..."
-                      className="bg-background font-mono text-sm"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                        SASL Mechanism
-                      </label>
-                      <Input
-                        {...form.register("config.saslMechanism")}
-                        placeholder="e.g. PLAIN / SCRAM-SHA-512"
-                        className="bg-background font-mono text-sm"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                        SASL JAAS Config
-                      </label>
-                      <Input
-                        {...form.register("config.saslJaasConfig")}
-                        placeholder="e.g. org.apache.kafka.common.security..."
-                        className="bg-background font-mono text-sm"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-muted-foreground">
-                    Advanced Kafka client properties (key/value) will be
-                    supported here soon.
-                  </div>
-                </div>
+                <KafkaConnectionSection
+                  register={form.register}
+                  errors={configErrors}
+                />
               )}
 
-              {/* POSTGRES */}
               {isVendor(selectedType, VENDOR_META.POSTGRES) && (
-                <div className="space-y-6 animate-in fade-in">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                        Database Name
-                      </label>
-                      <Input
-                        value={postgresDatabaseName}
-                        onChange={(e) =>
-                          setPostgresDatabaseName(e.target.value)
-                        }
-                        placeholder="postgres"
-                        className="bg-background font-mono text-sm"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                        JDBC URL
-                      </label>
-                      <Input
-                        {...form.register("config.jdbcUrl")}
-                        readOnly
-                        className="bg-muted/20 font-mono text-sm"
-                      />
-                      {configErrors?.jdbcUrl && (
-                        <p className="text-destructive text-xs">
-                          {configErrors.jdbcUrl.message}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                        Username
-                      </label>
-                      <Input
-                        {...form.register("config.username")}
-                        className="bg-background"
-                      />
-                      {configErrors?.username && (
-                        <p className="text-destructive text-xs">
-                          {configErrors.username.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                        Password
-                      </label>
-                      <Input
-                        {...form.register("config.password")}
-                        type="password"
-                        placeholder={
-                          isEditMode ? "•••••• (leave empty to keep)" : "••••••"
-                        }
-                        className="bg-background"
-                      />
-                    </div>
-                  </div>
-                </div>
+                <PostgresConnectionSection
+                  register={form.register}
+                  errors={configErrors}
+                  isEditMode={isEditMode}
+                  postgresDatabaseName={postgresDatabaseName}
+                  onDatabaseNameChange={setPostgresDatabaseName}
+                />
               )}
 
-              {/* RABBIT */}
               {isVendor(selectedType, VENDOR_META.RABBIT) && (
-                <div className="space-y-4 animate-in fade-in">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                        Username
-                      </label>
-                      <Input
-                        {...form.register("config.username")}
-                        placeholder="guest"
-                        className="bg-background"
-                      />
-                      {configErrors?.username && (
-                        <p className="text-destructive text-xs">
-                          {configErrors.username.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                        Password
-                      </label>
-                      <Input
-                        {...form.register("config.password")}
-                        type="password"
-                        placeholder={
-                          isEditMode ? "•••••• (leave empty to keep)" : "••••••"
-                        }
-                        className="bg-background"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                      Virtual Host
-                    </label>
-                    <Input
-                      {...form.register("config.virtualHost")}
-                      placeholder="/"
-                      className="bg-background font-mono text-sm"
-                    />
-                    {configErrors?.virtualHost && (
-                      <p className="text-destructive text-xs">
-                        {configErrors.virtualHost.message}
-                      </p>
-                    )}
-                  </div>
-                </div>
+                <RabbitConnectionSection
+                  register={form.register}
+                  errors={configErrors}
+                  isEditMode={isEditMode}
+                />
               )}
 
-              {/* PREVIEW */}
+              {/* Configuration Preview */}
               <div className="mt-6 pt-6 border-t border-border space-y-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-wider">
                   <Code size={12} /> Configuration Preview
@@ -742,7 +401,17 @@ export function ConnectionForm({
             </CardContent>
           </Card>
 
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-3">
+            {onCancel && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onCancel}
+                className="gap-2"
+              >
+                <X size={16} /> Cancel
+              </Button>
+            )}
             <Button
               type="submit"
               disabled={isSubmitting}
@@ -761,5 +430,219 @@ export function ConnectionForm({
         </div>
       </div>
     </form>
+  );
+}
+
+// ─── Vendor subcomponents ─────────────────────────────────────────────────────
+
+function KafkaConnectionSection({
+  register,
+  errors,
+}: {
+  register: any;
+  errors: any;
+}) {
+  return (
+    <div className="space-y-4 animate-in fade-in">
+      <div className="space-y-2">
+        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+          Bootstrap Servers
+        </label>
+        <Input
+          {...register("config.bootstrapServers")}
+          readOnly
+          className="bg-muted/20 font-mono text-sm"
+        />
+        {errors?.bootstrapServers && (
+          <p className="text-destructive text-xs">
+            {errors.bootstrapServers.message}
+          </p>
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          Auto-generated from Host and Port.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+          Security Protocol
+        </label>
+        <Input
+          {...register("config.securityProtocol")}
+          placeholder="PLAINTEXT / SSL / SASL_SSL ..."
+          className="bg-background font-mono text-sm"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            SASL Mechanism
+          </label>
+          <Input
+            {...register("config.saslMechanism")}
+            placeholder="e.g. PLAIN / SCRAM-SHA-512"
+            className="bg-background font-mono text-sm"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            SASL JAAS Config
+          </label>
+          <Input
+            {...register("config.saslJaasConfig")}
+            placeholder="e.g. org.apache.kafka.common.security..."
+            className="bg-background font-mono text-sm"
+          />
+        </div>
+      </div>
+
+      <div className="text-xs text-muted-foreground">
+        Advanced Kafka client properties (key/value) will be supported here
+        soon.
+      </div>
+    </div>
+  );
+}
+
+function PostgresConnectionSection({
+  register,
+  errors,
+  isEditMode,
+  postgresDatabaseName,
+  onDatabaseNameChange,
+}: {
+  register: any;
+  errors: any;
+  isEditMode: boolean;
+  postgresDatabaseName: string;
+  onDatabaseNameChange: (val: string) => void;
+}) {
+  return (
+    <div className="space-y-6 animate-in fade-in">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            Database Name
+          </label>
+          <Input
+            value={postgresDatabaseName}
+            onChange={(e) => onDatabaseNameChange(e.target.value)}
+            placeholder="postgres"
+            className="bg-background font-mono text-sm"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            JDBC URL
+          </label>
+          <Input
+            {...register("config.jdbcUrl")}
+            readOnly
+            className="bg-muted/20 font-mono text-sm"
+          />
+          {errors?.jdbcUrl && (
+            <p className="text-destructive text-xs">
+              {errors.jdbcUrl.message}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            Username
+          </label>
+          <Input
+            {...register("config.username")}
+            className="bg-background"
+          />
+          {errors?.username && (
+            <p className="text-destructive text-xs">
+              {errors.username.message}
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            Password
+          </label>
+          <Input
+            {...register("config.password")}
+            type="password"
+            placeholder={
+              isEditMode ? "•••••• (leave empty to keep)" : "••••••"
+            }
+            className="bg-background"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RabbitConnectionSection({
+  register,
+  errors,
+  isEditMode,
+}: {
+  register: any;
+  errors: any;
+  isEditMode: boolean;
+}) {
+  return (
+    <div className="space-y-4 animate-in fade-in">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            Username
+          </label>
+          <Input
+            {...register("config.username")}
+            placeholder="guest"
+            className="bg-background"
+          />
+          {errors?.username && (
+            <p className="text-destructive text-xs">
+              {errors.username.message}
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            Password
+          </label>
+          <Input
+            {...register("config.password")}
+            type="password"
+            placeholder={
+              isEditMode ? "•••••• (leave empty to keep)" : "••••••"
+            }
+            className="bg-background"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+          Virtual Host
+        </label>
+        <Input
+          {...register("config.virtualHost")}
+          placeholder="/"
+          className="bg-background font-mono text-sm"
+        />
+        {errors?.virtualHost && (
+          <p className="text-destructive text-xs">
+            {errors.virtualHost.message}
+          </p>
+        )}
+      </div>
+    </div>
   );
 }

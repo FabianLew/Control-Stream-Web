@@ -15,10 +15,6 @@ import type {
   EditStreamCommand,
   CreateStreamCommand,
   UnifiedStreamDto,
-  StreamVendorConfigDto,
-  SchemaSource,
-  PayloadFormatHint,
-  SchemaRegistryAuthType,
 } from "@/types/stream";
 
 import { useRouter } from "next/navigation";
@@ -41,7 +37,6 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
 import { DecodingConfigCard } from "@/components/stream/DecodingConfigCard";
@@ -55,6 +50,7 @@ import {
   FileJson,
   Save,
   Link as LinkIcon,
+  X,
 } from "lucide-react";
 import {
   getVendorMeta,
@@ -63,6 +59,16 @@ import {
   VENDOR_META,
 } from "@/components/lib/vendors";
 import { getConnectionsOverview } from "@/lib/api/connections";
+
+import {
+  DEFAULT_STREAM_FORM_VALUES,
+  mapStreamDtoToFormValues,
+  mapFormValuesToCommand,
+  ensureVendorConfigForType,
+  normalizeCorrelationKeyType,
+  toOptionalString,
+  toOptionalNumber,
+} from "@/lib/streams/form-mappers";
 
 type ConnectionSummary = {
   id: string;
@@ -76,18 +82,9 @@ type Props = {
   mode: StreamFormMode;
   stream?: UnifiedStreamDto | null;
   navigateAfterSubmit?: boolean;
+  /** Optional cancel handler (shown on configure page). */
+  onCancel?: () => void;
   onSubmit: (payload: CreateStreamCommand | EditStreamCommand) => Promise<void>;
-};
-
-const DEFAULT_FORM_VALUES: StreamFormValues = {
-  name: "",
-  type: "KAFKA",
-  connectionId: "",
-  technicalName: "",
-  correlationKeyType: "HEADER",
-  correlationKeyName: "trace-id",
-  vendorConfig: { vendor: "KAFKA" },
-  decoding: { schemaSource: "NONE", formatHint: "AUTO" },
 };
 
 const VendorIcon = ({ type }: { type: StreamType }) => {
@@ -107,247 +104,11 @@ function titleFromTechnical(technicalName: string) {
     .join(" ");
 }
 
-function toOptionalString(value: unknown): string | undefined {
-  if (value == null) return undefined;
-  const s = String(value).trim();
-  return s.length ? s : undefined;
-}
-
-function toOptionalNumber(value: unknown): number | undefined {
-  if (value == null) return undefined;
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : undefined;
-  }
-  const s = String(value).trim();
-  if (!s) return undefined;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function normalizeCorrelationKeyType(
-  streamType: StreamType,
-  raw: unknown,
-): "HEADER" | "COLUMN" {
-  if (raw === "HEADER" || raw === "COLUMN") return raw;
-  return isVendor(streamType, VENDOR_META.POSTGRES) ? "COLUMN" : "HEADER";
-}
-
-function normalizeCorrelationKeyName(
-  streamType: StreamType,
-  raw: unknown,
-): string {
-  const value = toOptionalString(raw);
-  if (value) return value;
-  return isVendor(streamType, VENDOR_META.POSTGRES) ? "trace_id" : "trace-id";
-}
-
-function normalizeDecoding(input: any) {
-  const schemaSource = (input?.schemaSource ?? "NONE") as SchemaSource;
-  const formatHint = (input?.formatHint ?? "AUTO") as PayloadFormatHint;
-
-  if (schemaSource === "NONE") {
-    return {
-      schemaSource: "NONE" as const,
-      formatHint,
-      schemaRegistry: undefined,
-      protoFiles: undefined,
-      avroFiles: undefined,
-    };
-  }
-
-  if (schemaSource === "SCHEMA_REGISTRY") {
-    const sr = input?.schemaRegistry ?? undefined;
-    const authType = (sr?.authType ?? "NONE") as SchemaRegistryAuthType;
-
-    return {
-      schemaSource: "SCHEMA_REGISTRY" as const,
-      formatHint,
-      schemaRegistry: sr
-        ? {
-            url: String(sr.url ?? "").trim(),
-            authType,
-            username:
-              authType === "BASIC" ? toOptionalString(sr.username) : undefined,
-            password:
-              authType === "BASIC" ? toOptionalString(sr.password) : undefined,
-          }
-        : undefined,
-      protoFiles: undefined,
-      avroFiles: undefined,
-    };
-  }
-
-  // FILES
-  const proto = input?.protoFiles;
-  const avro = input?.avroFiles;
-
-  return {
-    schemaSource: "FILES" as const,
-    formatHint,
-    schemaRegistry: undefined,
-    protoFiles:
-      proto && typeof proto === "object"
-        ? {
-            bundleId: String(proto.bundleId ?? "").trim(),
-            fileGlob: toOptionalString(proto.fileGlob),
-            fixedMessageFullName: toOptionalString(proto.fixedMessageFullName),
-            typeHeaderName: toOptionalString(proto.typeHeaderName),
-            typeHeaderValuePrefix: toOptionalString(
-              proto.typeHeaderValuePrefix,
-            ),
-          }
-        : undefined,
-    avroFiles:
-      avro && typeof avro === "object"
-        ? {
-            bundleId: String(avro.bundleId ?? "").trim(),
-            fileGlob: toOptionalString(avro.fileGlob),
-          }
-        : undefined,
-  };
-}
-
-function ensureVendorConfigForType(
-  type: StreamType,
-  current?: StreamVendorConfigDto,
-): StreamVendorConfigDto {
-  if (isVendor(type, VENDOR_META.KAFKA)) {
-    if (current && isVendor(current.vendor, VENDOR_META.KAFKA)) return current;
-    return { vendor: "KAFKA" };
-  }
-
-  if (isVendor(type, VENDOR_META.RABBIT)) {
-    if (current && isVendor(current.vendor, VENDOR_META.RABBIT)) {
-      const c: any = current;
-
-      return {
-        ...current,
-        // ensure optional fields are normalized (avoid nulls / NaN)
-        exchange: c.exchange == null ? undefined : String(c.exchange),
-        routingKey: c.routingKey == null ? undefined : String(c.routingKey),
-        prefetchCount:
-          c.prefetchCount == null ? undefined : Number(c.prefetchCount),
-
-        // search shadow retention (optional)
-        searchShadowTtlMs:
-          c.searchShadowTtlMs == null ? undefined : Number(c.searchShadowTtlMs),
-        searchShadowMaxLength:
-          c.searchShadowMaxLength == null
-            ? undefined
-            : Number(c.searchShadowMaxLength),
-
-        // optional custom name for SEARCH shadow
-        searchShadowQueueName:
-          c.searchShadowQueueName == null ? undefined : c.searchShadowQueueName,
-      } as any;
-    }
-
-    // defaults for a new Rabbit stream (queues always provisioned on backend)
-    return {
-      vendor: "RABBIT",
-      exchange: "",
-      routingKey: "",
-      prefetchCount: undefined,
-      searchShadowTtlMs: undefined,
-      searchShadowMaxLength: undefined,
-      searchShadowQueueName: undefined,
-    } as any;
-  }
-
-  // POSTGRES
-  if (current && isVendor(current.vendor, VENDOR_META.POSTGRES)) return current;
-  return { vendor: "POSTGRES", schema: "public" };
-}
-
-function normalizeVendorConfig(
-  type: StreamType,
-  vendorConfig: StreamVendorConfigDto | undefined,
-): StreamVendorConfigDto {
-  const current = vendorConfig ?? ({} as any);
-
-  if (isVendor(type, VENDOR_META.KAFKA)) {
-    const v = isVendor(current.vendor, VENDOR_META.KAFKA)
-      ? current
-      : { vendor: "KAFKA" };
-    return {
-      vendor: "KAFKA",
-      consumerGroupId: toOptionalString(v.consumerGroupId),
-    };
-  }
-
-  if (isVendor(type, VENDOR_META.RABBIT)) {
-    const v = isVendor(current.vendor, VENDOR_META.RABBIT)
-      ? current
-      : ({ vendor: "RABBIT" } as any);
-
-    return {
-      vendor: "RABBIT",
-      exchange: String(v.exchange ?? "").trim(), // required
-      routingKey: String(v.routingKey ?? "").trim(), // required
-      prefetchCount: toOptionalNumber(v.prefetchCount),
-
-      // Search shadow tuning (optional)
-      searchShadowTtlMs: toOptionalNumber((v as any).searchShadowTtlMs),
-      searchShadowMaxLength: toOptionalNumber((v as any).searchShadowMaxLength),
-
-      // Optional override ONLY for SEARCH shadow queue name (if you keep it)
-      searchShadowQueueName:
-        (v as any).searchShadowQueueName == null
-          ? undefined
-          : toOptionalString((v as any).searchShadowQueueName),
-    } as any;
-  }
-
-  // POSTGRES
-  const v = isVendor(current.vendor, VENDOR_META.POSTGRES)
-    ? current
-    : ({ vendor: "POSTGRES" } as any);
-  return {
-    vendor: "POSTGRES",
-    schema: toOptionalString(v.schema) ?? "public",
-    timeColumn: toOptionalString(v.timeColumn),
-  };
-}
-
-function normalizeFormPayload(
-  data: StreamFormValues,
-): CreateStreamCommand | EditStreamCommand {
-  const name = (data.name ?? "").trim();
-  const technical = (data.technicalName ?? "").trim();
-
-  const correlationKeyType = normalizeCorrelationKeyType(
-    data.type,
-    (data as any).correlationKeyType,
-  );
-
-  const correlationKeyName = normalizeCorrelationKeyName(
-    data.type,
-    (data as any).correlationKeyName,
-  );
-
-  const normalizedVendor = normalizeVendorConfig(
-    data.type,
-    data.vendorConfig as any,
-  );
-
-  const normalizedDecoding = normalizeDecoding(data.decoding);
-
-  return {
-    name,
-    type: data.type,
-    connectionId: data.connectionId,
-    technicalName: technical,
-    correlationKeyType,
-    correlationKeyName,
-    vendorConfig: normalizedVendor,
-    decoding: normalizedDecoding as any,
-  } as any;
-}
-
 export function StreamForm({
   mode,
   stream,
   navigateAfterSubmit = mode === "create",
+  onCancel,
   onSubmit,
 }: Props) {
   const router = useRouter();
@@ -358,51 +119,33 @@ export function StreamForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // For edit mode: compute initial form values synchronously at mount time.
-  // This avoids useEffect race conditions where other effects fire before
-  // the async init effect runs, seeing stale DEFAULT_FORM_VALUES.
-  // EditStreamDialog keys StreamForm by stream.id so this runs once per stream.
+  // ── Compute initial form values SYNCHRONOUSLY at mount time ─────────────
+  // useMemo with empty deps captures stream/mode at mount — the form's very
+  // first render already has the correct values.  This eliminates the "NONE
+  // on first render" race condition where child-component effects (e.g.
+  // DecodingConfigCard) fire before any useEffect can call form.reset.
   const initialFormValues = useMemo((): StreamFormValues => {
     if (mode === "edit" && stream) {
-      return {
-        ...DEFAULT_FORM_VALUES,
-        name: stream.name ?? "",
-        type: stream.type,
-        connectionId: stream.connectionId ?? "",
-        technicalName: stream.technicalName ?? "",
-        correlationKeyType: normalizeCorrelationKeyType(
-          stream.type,
-          (stream as any).correlationKeyType,
-        ),
-        correlationKeyName: normalizeCorrelationKeyName(
-          stream.type,
-          (stream as any).correlationKeyName,
-        ),
-        vendorConfig: ensureVendorConfigForType(
-          stream.type,
-          stream.vendorConfig,
-        ) as any,
-        decoding: normalizeDecoding(stream.decoding) as any,
-      };
+      return mapStreamDtoToFormValues(stream);
     }
-    return DEFAULT_FORM_VALUES;
+    return DEFAULT_STREAM_FORM_VALUES;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentionally empty — computed once on mount
+  }, []); // intentionally empty — captured once at mount
 
-  // In edit mode, display name is already set from the stream — don't auto-fill.
+  // In edit mode the display name is already filled — don't auto-derive it.
   const [displayNameTouched, setDisplayNameTouched] = useState(
-    mode === "edit",
+    mode === "edit"
   );
 
   const [rabbitConfirmOpen, setRabbitConfirmOpen] = useState(false);
   const pendingPayloadRef = useRef<
     CreateStreamCommand | EditStreamCommand | null
   >(null);
-  const rabbitConfirmAcknowledgedRef = useRef(false); // optional: don't ask twice in one form session
+  const rabbitConfirmAcknowledgedRef = useRef(false);
 
   const schema = useMemo(
     () => (mode === "edit" ? editStreamSchema : createStreamSchema),
-    [mode],
+    [mode]
   );
 
   const form = useForm<StreamFormValues>({
@@ -411,7 +154,24 @@ export function StreamForm({
     mode: "onChange",
   });
 
-  // load connections once
+  // ── Secondary reset: stream prop changes after mount ─────────────────────
+  // Pre-populate ref with the id already covered by initialFormValues so
+  // the effect does NOT duplicate the reset on the initial effect cycle.
+  // This handles future navigation between streams on the configure page
+  // without a full component unmount/remount.
+  const lastInitStreamIdRef = useRef<string | null>(
+    mode === "edit" && stream ? stream.id : null
+  );
+
+  useEffect(() => {
+    if (mode !== "edit" || !stream) return;
+    if (lastInitStreamIdRef.current === stream.id) return;
+    lastInitStreamIdRef.current = stream.id;
+    setDisplayNameTouched(true);
+    form.reset(mapStreamDtoToFormValues(stream));
+  }, [mode, stream, form]);
+
+  // ── Load connections once ─────────────────────────────────────────────────
   useEffect(() => {
     getConnectionsOverview()
       .then(setConnections)
@@ -430,9 +190,7 @@ export function StreamForm({
     return connections.find((c) => c.id === selectedConnectionId);
   }, [connections, selectedConnectionId]);
 
-  /**
-   * Create: apply defaults once per selected connectionId.
-   */
+  // ── Create mode: apply vendor defaults once per selected connection ───────
   const lastAppliedConnectionIdRef = useRef<string>("");
 
   useEffect(() => {
@@ -461,7 +219,7 @@ export function StreamForm({
       form.setValue(
         "vendorConfig",
         { vendor: "POSTGRES", schema: "public" } as any,
-        { shouldDirty: true, shouldValidate: true },
+        { shouldDirty: true, shouldValidate: true }
       );
     } else {
       form.setValue("correlationKeyType", "HEADER", {
@@ -484,9 +242,9 @@ export function StreamForm({
             prefetchCount: undefined,
             searchShadowTtlMs: undefined,
             searchShadowMaxLength: undefined,
-            searchShadowQueueName: undefined,
+            shadowQueueName: undefined,
           } as any,
-          { shouldDirty: true, shouldValidate: true },
+          { shouldDirty: true, shouldValidate: true }
         );
       } else {
         form.setValue("vendorConfig", { vendor: "KAFKA" } as any, {
@@ -505,66 +263,27 @@ export function StreamForm({
     form,
   ]);
 
-  /**
-   * Guardrail: POSTGRES must always be COLUMN.
-   * Prevents UI dead state if value ever becomes ""/null.
-   */
+  // ── Guardrail: POSTGRES must always use COLUMN ────────────────────────────
   useEffect(() => {
     if (!isVendor(watchedType, VENDOR_META.POSTGRES)) return;
-
     const current = form.getValues("correlationKeyType");
     if (current === "COLUMN") return;
-
     form.setValue("correlationKeyType", "COLUMN", {
       shouldDirty: false,
       shouldValidate: true,
     });
   }, [watchedType, form]);
 
-  /**
-   * Critical: keep decoding schema-valid when user turns it off (NONE).
-   */
-  const decodingSchemaSource = form.watch(
-    "decoding.schemaSource",
-  ) as SchemaSource;
-  const lastDecodingSchemaSourceRef = useRef<SchemaSource | null>(null);
-
-  useEffect(() => {
-    if (!decodingSchemaSource) return;
-    if (lastDecodingSchemaSourceRef.current === decodingSchemaSource) return;
-
-    lastDecodingSchemaSourceRef.current = decodingSchemaSource;
-
-    if (decodingSchemaSource === "NONE") {
-      form.setValue("decoding.schemaRegistry", undefined, {
-        shouldDirty: true,
-        shouldValidate: true,
-      });
-      form.setValue("decoding.protoFiles", undefined, {
-        shouldDirty: true,
-        shouldValidate: true,
-      });
-      form.setValue("decoding.avroFiles", undefined, {
-        shouldDirty: true,
-        shouldValidate: true,
-      });
-    }
-  }, [decodingSchemaSource, form]);
-
-  // create: auto-fill display name from technical name only if user didn't touch display name
+  // ── Create mode: auto-fill display name from technical name ──────────────
   useEffect(() => {
     if (mode !== "create") return;
     if (displayNameTouched) return;
-
     const technical = (watchedTechnicalName ?? "").trim();
     if (!technical) return;
-
     const currentName = (watchedName ?? "").trim();
     if (currentName) return;
-
     const suggested = titleFromTechnical(technical);
     if (!suggested) return;
-
     form.setValue("name", suggested, {
       shouldDirty: true,
       shouldTouch: false,
@@ -577,17 +296,16 @@ export function StreamForm({
     return stream?.connectionName ?? "";
   }, [mode, stream?.connectionName]);
 
+  // ── Submit ────────────────────────────────────────────────────────────────
   const submit = async (data: StreamFormValues) => {
     setIsSubmitting(true);
     setError(null);
 
     try {
-      // normalize once, then parse with schema -> guarantee correctness
-      const normalizedPayload = normalizeFormPayload(data);
+      const normalizedPayload = mapFormValuesToCommand(data);
 
       const parsed = schema.safeParse(normalizedPayload);
       if (!parsed.success) {
-        // Push normalized into form and trigger errors
         form.reset(normalizedPayload as any, {
           keepDirty: true,
           keepTouched: true,
@@ -599,7 +317,6 @@ export function StreamForm({
       }
 
       const payload = parsed.data as any;
-
       const isRabbitCreate = mode === "create" && payload.type === "RABBIT";
 
       if (isRabbitCreate && !rabbitConfirmAcknowledgedRef.current) {
@@ -627,13 +344,11 @@ export function StreamForm({
     if (!pending) return;
 
     rabbitConfirmAcknowledgedRef.current = true;
-
     setIsSubmitting(true);
     setError(null);
 
     try {
       await onSubmit(pending as any);
-
       if (navigateAfterSubmit) {
         router.push("/streams");
         router.refresh();
@@ -648,9 +363,9 @@ export function StreamForm({
 
   const values = form.watch();
   const previewJson = useMemo(
-    () => JSON.stringify(normalizeFormPayload(values), null, 2),
+    () => JSON.stringify(mapFormValuesToCommand(values), null, 2),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [values],
+    [values]
   );
 
   const showKafkaFields = isVendor(watchedType, VENDOR_META.KAFKA);
@@ -661,7 +376,7 @@ export function StreamForm({
 
   const correlationKeyTypeValue = normalizeCorrelationKeyType(
     watchedType,
-    form.watch("correlationKeyType"),
+    form.watch("correlationKeyType")
   );
 
   return (
@@ -670,11 +385,11 @@ export function StreamForm({
         handleInvalidSubmit(errors, {
           title: mode === "edit" ? "Stream not updated" : "Stream not created",
           description: "Please correct the highlighted fields and try again.",
-        }),
+        })
       )}
     >
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-        {/* LEFT */}
+        {/* ── LEFT: basics ── */}
         <div className="lg:col-span-1 space-y-6">
           <Card className="border-border/60 shadow-sm">
             <CardHeader>
@@ -772,13 +487,13 @@ export function StreamForm({
 
               <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
                 Streams map physical data sources (Topics, Queues, Tables) to
-                ControlStream's internal logic.
+                ControlStream&apos;s internal logic.
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* RIGHT */}
+        {/* ── RIGHT: vendor + decoding ── */}
         <div className="lg:col-span-2 space-y-6">
           <Card className="border-border/60 shadow-sm">
             <CardHeader className="pb-4">
@@ -792,7 +507,6 @@ export function StreamForm({
                     Define technical details for the selected connection.
                   </CardDescription>
                 </div>
-
                 <Badge
                   variant="outline"
                   className="text-[10px] text-muted-foreground"
@@ -860,7 +574,7 @@ export function StreamForm({
 
               <Separator />
 
-              {/* CORRELATION */}
+              {/* CORRELATION STRATEGY */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
@@ -924,17 +638,15 @@ export function StreamForm({
                 </div>
               </div>
 
-              {/* Vendor-specific */}
+              {/* ── RABBIT FIELDS ── */}
               {showRabbitFields && (
                 <>
                   <Separator />
-
                   <div className="space-y-4">
                     <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                       Rabbit Options
                     </Label>
 
-                    {/* Provisioning notice */}
                     <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
                       <div className="font-medium text-foreground text-sm mb-1">
                         RabbitMQ provisioning
@@ -956,7 +668,6 @@ export function StreamForm({
                       </ul>
                     </div>
 
-                    {/* Exchange + Routing */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label className="text-xs text-muted-foreground">
@@ -967,28 +678,23 @@ export function StreamForm({
                           onChange={(e) => {
                             const base = ensureVendorConfigForType(
                               "RABBIT",
-                              form.getValues("vendorConfig") as any,
+                              form.getValues("vendorConfig") as any
                             ) as any;
-
                             form.setValue(
                               "vendorConfig",
-                              {
-                                ...base,
-                                vendor: "RABBIT",
-                                exchange: e.target.value,
-                              } as any,
-                              { shouldDirty: true, shouldValidate: true },
+                              { ...base, vendor: "RABBIT", exchange: e.target.value } as any,
+                              { shouldDirty: true, shouldValidate: true }
                             );
                           }}
                           className="bg-background font-mono text-sm"
                           placeholder="e.g. orders.exchange"
                         />
-                        {form.getFieldState("vendorConfig.exchange").error ? (
+                        {form.getFieldState("vendorConfig.exchange").error && (
                           <p className="text-destructive text-xs">
                             {form.getFieldState("vendorConfig.exchange").error
                               ?.message ?? "Exchange is required"}
                           </p>
-                        ) : null}
+                        )}
                       </div>
 
                       <div className="space-y-2">
@@ -1002,32 +708,27 @@ export function StreamForm({
                           onChange={(e) => {
                             const base = ensureVendorConfigForType(
                               "RABBIT",
-                              form.getValues("vendorConfig") as any,
+                              form.getValues("vendorConfig") as any
                             ) as any;
-
                             form.setValue(
                               "vendorConfig",
-                              {
-                                ...base,
-                                vendor: "RABBIT",
-                                routingKey: e.target.value,
-                              } as any,
-                              { shouldDirty: true, shouldValidate: true },
+                              { ...base, vendor: "RABBIT", routingKey: e.target.value } as any,
+                              { shouldDirty: true, shouldValidate: true }
                             );
                           }}
                           className="bg-background font-mono text-sm"
                           placeholder="e.g. orders.*"
                         />
-                        {form.getFieldState("vendorConfig.routingKey").error ? (
+                        {form.getFieldState("vendorConfig.routingKey")
+                          .error && (
                           <p className="text-destructive text-xs">
                             {form.getFieldState("vendorConfig.routingKey").error
                               ?.message ?? "Routing key is required"}
                           </p>
-                        ) : null}
+                        )}
                       </div>
                     </div>
 
-                    {/* Shadow queue toggle */}
                     <div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
                       <div>
                         <div className="text-sm font-medium">
@@ -1040,7 +741,6 @@ export function StreamForm({
                       </div>
                     </div>
 
-                    {/* Retention controls (Search only) */}
                     <div className="rounded-lg border border-border/60 p-3 space-y-3">
                       <div className="flex items-center justify-between gap-3">
                         <div>
@@ -1048,13 +748,11 @@ export function StreamForm({
                             Search retention
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            Applies only to <b>Search shadow queue</b>. Values
-                            are stored per stream. Leave empty to use agent
-                            defaults.
+                            Applies only to <b>Search shadow queue</b>. Leave
+                            empty to use agent defaults.
                           </div>
                         </div>
 
-                        {/* quick presets */}
                         <Select
                           value={
                             currentVendor.searchShadowTtlMs == null
@@ -1064,14 +762,12 @@ export function StreamForm({
                           onValueChange={(v) => {
                             const base = ensureVendorConfigForType(
                               "RABBIT",
-                              form.getValues("vendorConfig") as any,
+                              form.getValues("vendorConfig") as any
                             ) as any;
-
                             const ttl =
                               v === "DEFAULT"
                                 ? undefined
                                 : Number(String(v).trim());
-
                             form.setValue(
                               "vendorConfig",
                               {
@@ -1081,7 +777,7 @@ export function StreamForm({
                                   ? ttl
                                   : undefined,
                               } as any,
-                              { shouldDirty: true, shouldValidate: true },
+                              { shouldDirty: true, shouldValidate: true }
                             );
                           }}
                         >
@@ -1096,7 +792,9 @@ export function StreamForm({
                             <SelectItem value={String(24 * 60 * 60 * 1000)}>
                               24 hours
                             </SelectItem>
-                            <SelectItem value={String(7 * 24 * 60 * 60 * 1000)}>
+                            <SelectItem
+                              value={String(7 * 24 * 60 * 60 * 1000)}
+                            >
                               7 days
                             </SelectItem>
                             <SelectItem
@@ -1122,19 +820,18 @@ export function StreamForm({
                             onChange={(e) => {
                               const base = ensureVendorConfigForType(
                                 "RABBIT",
-                                form.getValues("vendorConfig") as any,
+                                form.getValues("vendorConfig") as any
                               ) as any;
-
                               form.setValue(
                                 "vendorConfig",
                                 {
                                   ...base,
                                   vendor: "RABBIT",
                                   searchShadowTtlMs: toOptionalNumber(
-                                    e.target.value,
+                                    e.target.value
                                   ),
                                 } as any,
-                                { shouldDirty: true, shouldValidate: true },
+                                { shouldDirty: true, shouldValidate: true }
                               );
                             }}
                             className="bg-background font-mono text-sm"
@@ -1158,19 +855,18 @@ export function StreamForm({
                             onChange={(e) => {
                               const base = ensureVendorConfigForType(
                                 "RABBIT",
-                                form.getValues("vendorConfig") as any,
+                                form.getValues("vendorConfig") as any
                               ) as any;
-
                               form.setValue(
                                 "vendorConfig",
                                 {
                                   ...base,
                                   vendor: "RABBIT",
                                   searchShadowMaxLength: toOptionalNumber(
-                                    e.target.value,
+                                    e.target.value
                                   ),
                                 } as any,
-                                { shouldDirty: true, shouldValidate: true },
+                                { shouldDirty: true, shouldValidate: true }
                               );
                             }}
                             className="bg-background font-mono text-sm"
@@ -1183,7 +879,6 @@ export function StreamForm({
                       </div>
                     </div>
 
-                    {/* Optional custom name */}
                     <div className="space-y-2">
                       <Label className="text-xs text-muted-foreground">
                         Search shadow queue name (optional)
@@ -1195,9 +890,8 @@ export function StreamForm({
                         onChange={(e) => {
                           const base = ensureVendorConfigForType(
                             "RABBIT",
-                            form.getValues("vendorConfig") as any,
+                            form.getValues("vendorConfig") as any
                           ) as any;
-
                           form.setValue(
                             "vendorConfig",
                             {
@@ -1205,7 +899,7 @@ export function StreamForm({
                               vendor: "RABBIT",
                               shadowQueueName: toOptionalString(e.target.value),
                             } as any,
-                            { shouldDirty: true, shouldValidate: true },
+                            { shouldDirty: true, shouldValidate: true }
                           );
                         }}
                         className="bg-background font-mono text-sm"
@@ -1216,6 +910,7 @@ export function StreamForm({
                 </>
               )}
 
+              {/* ── POSTGRES FIELDS ── */}
               {showPostgresFields && (
                 <>
                   <Separator />
@@ -1233,17 +928,12 @@ export function StreamForm({
                         onChange={(e) => {
                           const base = ensureVendorConfigForType(
                             "POSTGRES",
-                            form.getValues("vendorConfig") as any,
+                            form.getValues("vendorConfig") as any
                           ) as any;
-
                           form.setValue(
                             "vendorConfig",
-                            {
-                              ...base,
-                              vendor: "POSTGRES",
-                              schema: e.target.value,
-                            } as any,
-                            { shouldDirty: true, shouldValidate: true },
+                            { ...base, vendor: "POSTGRES", schema: e.target.value } as any,
+                            { shouldDirty: true, shouldValidate: true }
                           );
                         }}
                         className="bg-background font-mono text-sm"
@@ -1254,6 +944,7 @@ export function StreamForm({
                 </>
               )}
 
+              {/* ── KAFKA FIELDS ── */}
               {showKafkaFields && (
                 <>
                   <Separator />
@@ -1273,9 +964,8 @@ export function StreamForm({
                         onChange={(e) => {
                           const base = ensureVendorConfigForType(
                             "KAFKA",
-                            form.getValues("vendorConfig") as any,
+                            form.getValues("vendorConfig") as any
                           ) as any;
-
                           form.setValue(
                             "vendorConfig",
                             {
@@ -1283,7 +973,7 @@ export function StreamForm({
                               vendor: "KAFKA",
                               consumerGroupId: toOptionalString(e.target.value),
                             } as any,
-                            { shouldDirty: true, shouldValidate: true },
+                            { shouldDirty: true, shouldValidate: true }
                           );
                         }}
                         className="bg-background font-mono text-sm"
@@ -1317,7 +1007,17 @@ export function StreamForm({
             </div>
           )}
 
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-3">
+            {onCancel && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onCancel}
+                className="gap-2"
+              >
+                <X size={16} /> Cancel
+              </Button>
+            )}
             <Button
               type="submit"
               disabled={
@@ -1325,7 +1025,7 @@ export function StreamForm({
                 (mode === "create" &&
                   (!activeConnection || !selectedConnectionId))
               }
-              className="w-full sm:w-auto px-8 py-6 text-base font-medium shadow-lg shadow-primary/20"
+              className="px-8 py-6 text-base font-medium shadow-lg shadow-primary/20"
             >
               {isSubmitting ? (
                 <Loader2 className="animate-spin mr-2" />
@@ -1339,6 +1039,7 @@ export function StreamForm({
           </div>
         </div>
       </div>
+
       <RabbitProvisioningConfirmDialog
         open={rabbitConfirmOpen}
         onOpenChange={(open) => {
