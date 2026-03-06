@@ -18,6 +18,7 @@ import {
   Settings2,
   Braces,
   Trash2,
+  Telescope,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
@@ -258,6 +259,13 @@ export const ConnectionDetail = ({ id }: Props) => {
                 className={testMutation.isPending ? "animate-spin" : ""}
               />
               {testMutation.isPending ? "Checking..." : "Run Health Check"}
+            </Button>
+
+            <Button variant="outline" className="shadow-sm gap-2" asChild>
+              <Link href={`/connections/${id}/discover-streams`}>
+                <Telescope size={16} />
+                Discover streams
+              </Link>
             </Button>
 
             <Button variant="outline" className="shadow-sm gap-2" asChild>

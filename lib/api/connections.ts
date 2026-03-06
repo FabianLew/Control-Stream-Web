@@ -5,6 +5,11 @@ import type {
   ConnectionTestResultDto,
   ConnectionUpsertPayload,
 } from "@/types/connection";
+import type {
+  ImportStreamCandidatesPayload,
+  ImportStreamCandidatesResult,
+  StreamCandidateDto,
+} from "@/types/streamCandidate";
 import { requestJson, requestVoid } from "./helper";
 
 export const getConnections = async (): Promise<ConnectionDto[]> =>
@@ -58,3 +63,19 @@ export const updateConnectionById = async (
 
 export const deleteConnection = async (id: string): Promise<void> =>
   requestVoid(`/api/connections/${id}`, { method: "DELETE" });
+
+export const getStreamCandidates = async (
+  connectionId: string
+): Promise<StreamCandidateDto[]> =>
+  requestJson(
+    `/api/connections/${encodeURIComponent(connectionId)}/stream-candidates`
+  );
+
+export const importStreamCandidates = async (
+  connectionId: string,
+  payload: ImportStreamCandidatesPayload
+): Promise<ImportStreamCandidatesResult> =>
+  requestJson(
+    `/api/connections/${encodeURIComponent(connectionId)}/stream-candidates/import`,
+    { method: "POST", json: payload }
+  );

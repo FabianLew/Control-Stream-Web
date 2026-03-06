@@ -170,7 +170,7 @@ const rabbitVendorSchema = z.object({
   exchange: z.string().min(1),
   routingKey: z.string().min(1),
   prefetchCount: z.number().int().positive().optional(),
-  shadowQueueName: z.string().nullable().optional(),
+  shadowQueueName: z.string().optional(),
   searchShadowTtlMs: z.number().int().positive().optional(),
   searchShadowMaxLength: z.number().int().positive().optional(),
 });
@@ -199,7 +199,25 @@ const streamBaseSchema = z.object({
 });
 
 export const createStreamSchema = streamBaseSchema;
-export const editStreamSchema = streamBaseSchema;
+
+/**
+ * Edit schema adds a cross-field rule: for Rabbit streams the shadowQueueName
+ * must be present (it is provisioned on create and required for Search indexing).
+ */
+export const editStreamSchema = streamBaseSchema.superRefine((val, ctx) => {
+  if (val.type === "RABBIT") {
+    const vc = val.vendorConfig as any;
+    if (vc?.vendor === "RABBIT") {
+      if (!vc.shadowQueueName || !String(vc.shadowQueueName).trim()) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["vendorConfig", "shadowQueueName"],
+          message: "Shadow queue name is required for Search indexing",
+        });
+      }
+    }
+  }
+});
 
 export type StreamFormValues = z.input<typeof streamBaseSchema>;
 export type CreateStreamFormValues = z.input<typeof createStreamSchema>;

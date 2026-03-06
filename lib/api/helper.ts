@@ -67,6 +67,11 @@ export async function requestJson<T>(
   }
 
   if (res.status === 204) return undefined as T;
+  // Some endpoints (e.g. DELETE) return 200 with an empty body instead of 204.
+  // Attempting res.json() on an empty body throws a SyntaxError and incorrectly
+  // triggers onError even though the request succeeded — guard against this.
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) return undefined as T;
   return res.json() as Promise<T>;
 }
 

@@ -20,6 +20,7 @@ import { sendReplayMessage } from "@/lib/api/replay";
 import { useSchemaRegistrySchemas } from "@/components/viewer/SchemaRegistrySchemaSelect";
 import { useAvroSupportedSchemas } from "@/components/viewer/AvroSchemaSelect";
 import { useProtoSupportedMessageTypes } from "@/components/viewer/ProtoMessageTypeSelect";
+import { filterProtoDependencyTypes } from "@/lib/proto/protoFilter";
 import {
   SendSchemaSection,
   emptySchemaState,
@@ -116,11 +117,17 @@ export function ReplayMessageDialog({
     }
   }, [isAvroFiles, avroQuery.data, schemaState.schemaPath]);
 
-  // Auto-select Proto: first option
+  // Auto-select Proto: first domain type (dependency-only types are excluded)
   useEffect(() => {
     const data = protoQuery.data;
     if (isProtoFiles && data?.length && schemaState.messageFullName == null) {
-      setSchemaState((prev) => ({ ...prev, messageFullName: data[0].messageFullName }));
+      const domainTypes = filterProtoDependencyTypes(data);
+      if (domainTypes.length > 0) {
+        setSchemaState((prev) => ({
+          ...prev,
+          messageFullName: domainTypes[0].messageFullName,
+        }));
+      }
     }
   }, [isProtoFiles, protoQuery.data, schemaState.messageFullName]);
 

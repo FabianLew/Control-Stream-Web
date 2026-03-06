@@ -43,6 +43,7 @@ import { DecodingConfigCard } from "@/components/stream/DecodingConfigCard";
 import { handleInvalidSubmit } from "@/components/lib/formError";
 import { RabbitProvisioningConfirmDialog } from "@/components/stream/RabbitProvisioningConfirmDialog";
 
+import { toast } from "sonner";
 import {
   Loader2,
   Sparkles,
@@ -142,6 +143,18 @@ export function StreamForm({
     CreateStreamCommand | EditStreamCommand | null
   >(null);
   const rabbitConfirmAcknowledgedRef = useRef(false);
+
+  // Tracks the shadow queue name that came from the backend.
+  // Used to auto-restore the field if the user accidentally clears it in edit mode.
+  const originalShadowQueueNameRef = useRef<string>(
+    (() => {
+      if (mode !== "edit") return "";
+      const vc = initialFormValues.vendorConfig as any;
+      return vc?.vendor === "RABBIT" && vc.shadowQueueName
+        ? String(vc.shadowQueueName)
+        : "";
+    })()
+  );
 
   const schema = useMemo(
     () => (mode === "edit" ? editStreamSchema : createStreamSchema),
@@ -880,9 +893,16 @@ export function StreamForm({
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">
-                        Search shadow queue name (optional)
-                      </Label>
+                      <div className="flex items-center justify-between gap-2">
+                        <Label className="text-xs text-muted-foreground">
+                          Shadow queue name
+                        </Label>
+                        {mode === "edit" && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            Required
+                          </Badge>
+                        )}
+                      </div>
                       <Input
                         value={
                           toOptionalString(currentVendor.shadowQueueName) ?? ""
@@ -902,9 +922,57 @@ export function StreamForm({
                             { shouldDirty: true, shouldValidate: true }
                           );
                         }}
+                        onBlur={() => {
+                          if (mode !== "edit") return;
+                          const currentVal = toOptionalString(
+                            currentVendor.shadowQueueName
+                          );
+                          if (
+                            !currentVal &&
+                            originalShadowQueueNameRef.current
+                          ) {
+                            const base = ensureVendorConfigForType(
+                              "RABBIT",
+                              form.getValues("vendorConfig") as any
+                            ) as any;
+                            form.setValue(
+                              "vendorConfig",
+                              {
+                                ...base,
+                                vendor: "RABBIT",
+                                shadowQueueName:
+                                  originalShadowQueueNameRef.current,
+                              } as any,
+                              { shouldDirty: true, shouldValidate: true }
+                            );
+                            toast.warning(
+                              "Shadow queue name cannot be empty",
+                              {
+                                description:
+                                  "The original value has been restored.",
+                              }
+                            );
+                          }
+                        }}
                         className="bg-background font-mono text-sm"
-                        placeholder="leave empty for auto (e.g. cs-audit-orders.queue)"
+                        placeholder={
+                          mode === "edit"
+                            ? "e.g. cs-audit-orders.queue"
+                            : "leave empty — auto-provisioned on create"
+                        }
                       />
+                      {form.getFieldState("vendorConfig.shadowQueueName")
+                        .error && (
+                        <p className="text-destructive text-xs">
+                          {form.getFieldState("vendorConfig.shadowQueueName")
+                            .error?.message ?? "Shadow queue name is required"}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-muted-foreground">
+                        {mode === "edit"
+                          ? "Required for Search indexing. Do not clear this value."
+                          : "Leave empty — backend provisions automatically on create."}
+                      </p>
                     </div>
                   </div>
                 </>
