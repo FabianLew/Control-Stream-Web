@@ -38,3 +38,18 @@ export type SendResultDto = {
   success: boolean;
   message?: string;
 };
+
+/** Query parameters for GET /api/send/streams/{streamId}/example */
+export type GetExampleParams = {
+  streamId: string;
+  schemaId?: number;
+  schemaPath?: string;
+  messageFullName?: string;
+};
+
+/** Response from GET /api/send/streams/{streamId}/example */
+export type ExamplePayloadDto = {
+  payloadJson: string;
+  /** Human-readable notes from backend about the generated example (may be empty). */
+  notes: string[];
+};

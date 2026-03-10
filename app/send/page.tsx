@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertCircle, Loader2, Wand2, BookOpen } from "lucide-react";
+import { AlertCircle, Info, Loader2, Wand2, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +14,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { getStreams } from "@/lib/api/streams";
 import { sendReplayMessage } from "@/lib/api/replay";
 import { useSchemaRegistrySchemas } from "@/components/viewer/SchemaRegistrySchemaSelect";
@@ -33,6 +43,13 @@ import {
   buildProtoHeaderInjection,
   type SchemaSelectionState,
 } from "@/components/send/SendSchemaSection";
+import {
+  useSendExample,
+  buildExampleRequestParams,
+} from "@/hooks/useSendExample";
+import type { GetExampleParams } from "@/types/replay";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function entriesToRecord(entries: HeaderEntry[]): Record<string, string> {
   return Object.fromEntries(
@@ -40,41 +57,14 @@ function entriesToRecord(entries: HeaderEntry[]): Record<string, string> {
   );
 }
 
-const INITIAL_PAYLOAD = "{}";
-
-// ── Example payload helpers ───────────────────────────────────────────────────
-
 function isPayloadMeaningful(payload: string): boolean {
   const t = payload.trim();
   return t !== "" && t !== "{}";
 }
 
-function buildExamplePayload(
-  schemaSource: string,
-  formatHint: string,
-  messageFullName: string | null
-): Record<string, unknown> {
-  const createdAt = "2026-01-01T00:00:00Z";
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
-  if (schemaSource === "FILES" && formatHint === "PROTO") {
-    const name = messageFullName ?? "";
-    const base: Record<string, unknown> = { id: "example-1", count: 1, createdAt };
-    if (name.includes("Order")) return { ...base, orderId: "order-1", amount: 99.99 };
-    if (name.includes("Payment")) return { ...base, amount: 99.99, currency: "USD" };
-    return base;
-  }
-
-  if (schemaSource === "FILES" && formatHint === "AVRO") {
-    return { id: "example-1", amount: 12.34, createdAt };
-  }
-
-  if (schemaSource === "SCHEMA_REGISTRY") {
-    return { id: "example-1", amount: 12.34, createdAt };
-  }
-
-  // JSON / NONE / default
-  return { type: "EXAMPLE_EVENT", id: "example-1", createdAt };
-}
+const INITIAL_PAYLOAD = "{}";
 
 export default function SendPage() {
   const [selectedStreamId, setSelectedStreamId] = useState<string | null>(null);
@@ -83,6 +73,15 @@ export default function SendPage() {
   const [correlationId, setCorrelationId] = useState("");
   const [headerEntries, setHeaderEntries] = useState<HeaderEntry[]>([]);
   const [schemaState, setSchemaState] = useState<SchemaSelectionState>(emptySchemaState);
+
+  // Example-specific state
+  const [exampleNotes, setExampleNotes] = useState<string[]>([]);
+  /**
+   * When set, holds the validated params that are waiting for the user to
+   * confirm "Replace existing payload?" before the request is fired.
+   */
+  const [exampleConfirmPending, setExampleConfirmPending] =
+    useState<GetExampleParams | null>(null);
 
   // --- Streams list ---
   const { data: streams, isLoading: streamsLoading } = useQuery({
@@ -99,7 +98,6 @@ export default function SendPage() {
   const decoding = selectedStream?.decoding;
   const schemaSource = decoding?.schemaSource ?? "NONE";
   const formatHint = decoding?.formatHint ?? "AUTO";
-  const protoFiles = decoding?.protoFiles;
 
   const isSchemaRegistry = schemaSource === "SCHEMA_REGISTRY";
   const isAvroFiles = schemaSource === "FILES" && formatHint === "AVRO";
@@ -107,7 +105,8 @@ export default function SendPage() {
 
   const isKafka = selectedStream?.type === "KAFKA";
   const showCorrelationInput =
-    selectedStream?.correlationKeyType === "HEADER" && !!selectedStream.correlationKeyName;
+    selectedStream?.correlationKeyType === "HEADER" &&
+    !!selectedStream.correlationKeyName;
   const correlationHeaderName = selectedStream?.correlationKeyName ?? "";
 
   // --- Dependent schema/type queries for auto-selection ---
@@ -121,9 +120,10 @@ export default function SendPage() {
     isProtoFiles ? (selectedStreamId ?? undefined) : undefined
   );
 
-  // Reset schema state when stream changes
+  // Reset schema state + example notes when stream changes
   useEffect(() => {
     setSchemaState(emptySchemaState);
+    setExampleNotes([]);
   }, [selectedStreamId]);
 
   // Auto-select SR: highest version first
@@ -170,9 +170,15 @@ export default function SendPage() {
 
   const isJsonValid = payloadJson.trim() !== "" && jsonError === null;
 
-  // --- Mutation ---
+  // --- Send mutation ---
   const sendMutation = useMutation({ mutationFn: sendReplayMessage });
   const isPending = sendMutation.isPending;
+
+  // --- Example mutation ---
+  const exampleMutation = useSendExample((result) => {
+    setPayloadJson(result.payloadJson);
+    setExampleNotes(result.notes ?? []);
+  });
 
   // --- Disabled state ---
   const isSendDisabled =
@@ -182,19 +188,40 @@ export default function SendPage() {
     isPending;
 
   // --- Actions ---
+
+  /**
+   * Fires the backend example request with the given params.
+   * Separated from click handler so the confirmation dialog can call it too.
+   */
+  function executeExampleRequest(params: GetExampleParams) {
+    exampleMutation.mutate(params);
+  }
+
   const handleLoadExample = () => {
-    if (
-      isPayloadMeaningful(payloadJson) &&
-      !window.confirm("Replace current payload with an example?")
-    ) {
+    // Validate context and build params — no request if context is incomplete.
+    const result = buildExampleRequestParams(
+      selectedStreamId,
+      decoding,
+      schemaState
+    );
+    if (!result.ok) {
+      toast.warning(result.error);
       return;
     }
-    const example = buildExamplePayload(schemaSource, formatHint, schemaState.messageFullName);
-    setPayloadJson(JSON.stringify(example, null, 2));
-    // Pre-fill correlation ID from the example's id field if the input is empty
-    if (showCorrelationInput && !correlationId.trim() && "id" in example) {
-      setCorrelationId(String(example.id));
+
+    // If the editor already has meaningful content, ask before overwriting.
+    if (isPayloadMeaningful(payloadJson)) {
+      setExampleConfirmPending(result.params);
+      return;
     }
+
+    executeExampleRequest(result.params);
+  };
+
+  const handleExampleConfirm = () => {
+    if (!exampleConfirmPending) return;
+    executeExampleRequest(exampleConfirmPending);
+    setExampleConfirmPending(null);
   };
 
   const handleFormatJson = () => {
@@ -211,6 +238,7 @@ export default function SendPage() {
     setCorrelationId("");
     setHeaderEntries([]);
     setSchemaState(emptySchemaState);
+    setExampleNotes([]);
   };
 
   const handleSend = (clearAfter = false) => {
@@ -244,6 +272,8 @@ export default function SendPage() {
       }
     );
   };
+
+  const isExampleLoading = exampleMutation.isPending;
 
   return (
     <div className="p-6 space-y-6">
@@ -384,10 +414,14 @@ export default function SendPage() {
                   variant="ghost"
                   size="sm"
                   onClick={handleLoadExample}
-                  disabled={isPending}
+                  disabled={isPending || isExampleLoading}
                   className="h-7 px-2 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
                 >
-                  <BookOpen size={12} />
+                  {isExampleLoading ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <BookOpen size={12} />
+                  )}
                   Example
                 </Button>
                 <Button
@@ -419,6 +453,21 @@ export default function SendPage() {
                 {jsonError}
               </p>
             )}
+
+            {/* Backend example notes — shown only when present */}
+            {exampleNotes.length > 0 && (
+              <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-2.5 space-y-1.5">
+                <p className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                  <Info size={10} className="flex-none" />
+                  Example notes
+                </p>
+                {exampleNotes.map((note, i) => (
+                  <p key={i} className="text-xs text-muted-foreground leading-snug">
+                    {note}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Headers card */}
@@ -434,6 +483,32 @@ export default function SendPage() {
           </div>
         </div>
       </div>
+
+      {/* Confirm-before-overwrite dialog */}
+      <AlertDialog
+        open={exampleConfirmPending !== null}
+        onOpenChange={(open) => {
+          if (!open) setExampleConfirmPending(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace payload?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Replace the current payload with an example generated from the
+              selected schema? This will overwrite your existing content.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setExampleConfirmPending(null)}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleExampleConfirm}>
+              Replace
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
